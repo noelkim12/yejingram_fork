@@ -175,7 +175,8 @@ function PromptModal({ isOpen, onClose }: PromptModalProps) {
         // Merge new fields with defaults if missing
         const withDefaults = {
             ...initialState.prompts,
-            ...p
+            ...p,
+            disabledParams: p.disabledParams ?? initialState.prompts.disabledParams ?? []
         } as Prompts;
         return withDefaults;
     };
@@ -363,64 +364,91 @@ function PromptModal({ isOpen, onClose }: PromptModalProps) {
                     </div>
                     <h4 className="text-base font-semibold text-(--color-preview-accent-to) border-b border-(--color-preview-border)/40 pb-2 mt-6">{t('settings.prompts.generation.title')}</h4>
                     <div className="space-y-4 mt-4">
-                        <div className="flex flex-col">
-                            <label className="flex items-center justify-between text-xs font-medium text-(--color-text-tertiary) mb-2">
-                                <span className="flex items-center gap-1"><Thermometer className="w-4 h-4" /> {t('settings.prompts.generation.temperature')}</span>
-                                <span className="text-(--color-preview-accent-to) font-semibold">{localPrompts.temperature?.toFixed(2) ?? 'N/A'}</span>
-                            </label>
-                            <input
-                                type="range"
-                                min="0"
-                                max="2"
-                                step="0.01"
-                                value={localPrompts.temperature || 1.25}
-                                onChange={e => setLocalPrompts(prev => ({ ...prev, temperature: parseFloat(parseFloat(e.target.value).toFixed(2)) ?? -1 }))}
+                        {Object.entries(PARAM_DEFINITIONS).map(([key, meta]) => {
+                            // Skip if not supported by current provider
+                            if (!supportedParams.includes(key)) return null;
 
-                                className="w-full accent-(--color-button-primary)"
-                            />
-                            <div className="flex justify-between text-xs text-(--color-text-informative-primary) mt-1">
-                                <span>0</span>
-                                <span>2</span>
-                            </div>
-                        </div>
-                        <div className="flex flex-col">
-                            <label className="flex items-center justify-between text-xs font-medium text-(--color-text-tertiary) mb-2">
-                                <span className="flex items-center gap-1"><Percent className="w-4 h-4" /> {t('settings.prompts.generation.topP')}</span>
-                                <span className="text-(--color-preview-accent-to) font-semibold">{localPrompts.topP?.toFixed(2) ?? 'N/A'}</span>
-                            </label>
-                            <input
-                                type="range"
-                                min="0"
-                                max="1"
-                                step="0.01"
-                                value={localPrompts.topP || 0.95}
-                                onChange={e => setLocalPrompts(prev => ({ ...prev, topP: parseFloat(parseFloat(e.target.value).toFixed(2)) ?? -1 }))}
-                                className="w-full accent-(--color-button-primary)"
-                            />
-                            <div className="flex justify-between text-xs text-(--color-text-informative-primary) mt-1">
-                                <span>0</span>
-                                <span>1</span>
-                            </div>
-                        </div>
-                        <div className="flex flex-col">
-                            <label className="flex items-center justify-between text-xs font-medium text-(--color-text-tertiary) mb-2">
-                                <span className="flex items-center gap-1"><ArrowUpToLine className="w-4 h-4" /> {t('settings.prompts.generation.topK')}</span>
-                                <span className="text-(--color-preview-accent-to) font-semibold">{localPrompts.topK ?? 'N/A'}</span>
-                            </label>
-                            <input
-                                type="range"
-                                min="1"
-                                max="100"
-                                step="1"
-                                value={localPrompts.topK || 40}
-                                onChange={e => setLocalPrompts(prev => ({ ...prev, topK: parseInt(e.target.value) ?? -1 }))}
-                                className="w-full accent-(--color-button-primary)"
-                            />
-                            <div className="flex justify-between text-xs text-(--color-text-informative-primary) mt-1">
-                                <span>1</span>
-                                <span>100</span>
-                            </div>
-                        </div>
+                            const isDisabled = localPrompts.disabledParams?.includes(key) ?? false;
+                            const value = (localPrompts as any)[key];
+
+                            return (
+                                <div key={key} className={`flex flex-col ${isDisabled ? 'opacity-50' : ''}`}>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="text-xs font-medium text-(--color-text-tertiary)">
+                                            {t(`settings.prompts.generation.${key}`)}
+                                        </label>
+                                        <label className="relative flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                className="sr-only peer"
+                                                checked={!isDisabled}
+                                                onChange={e => handleToggleParam(key, e.target.checked)}
+                                            />
+                                            <div className="w-9 h-5 bg-(--color-toggle-off) rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-(--color-bg-main) after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-(--color-toggle-on)"></div>
+                                        </label>
+                                    </div>
+
+                                    {/* Number params with slider */}
+                                    {meta.type === 'number' && meta.range && (
+                                        <>
+                                            <input
+                                                type="range"
+                                                min={meta.range.min}
+                                                max={meta.range.max}
+                                                step={meta.range.step}
+                                                value={value ?? meta.defaultValue}
+                                                onChange={e => setLocalPrompts(prev => ({ ...prev, [key]: parseFloat(e.target.value) }))}
+                                                disabled={isDisabled}
+                                                className="w-full accent-(--color-button-primary) disabled:opacity-50"
+                                            />
+                                            <div className="flex justify-between text-xs text-(--color-text-informative-primary) mt-1">
+                                                <span>{meta.range.min}</span>
+                                                <span className="text-(--color-preview-accent-to) font-semibold">
+                                                    {typeof value === 'number' ? value.toFixed(2) : meta.defaultValue}
+                                                </span>
+                                                <span>{meta.range.max}</span>
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {/* String enum params (reasoningEffort) */}
+                                    {meta.type === 'string' && meta.enumValues && (
+                                        <select
+                                            value={value ?? meta.defaultValue}
+                                            onChange={e => setLocalPrompts(prev => ({ ...prev, [key]: e.target.value }))}
+                                            disabled={isDisabled}
+                                            className="w-full p-2 bg-(--color-bg-main) text-(--color-text-primary) rounded border border-(--color-border) text-sm disabled:opacity-50"
+                                        >
+                                            {meta.enumValues.map(opt => (
+                                                <option key={opt} value={opt}>{opt}</option>
+                                            ))}
+                                        </select>
+                                    )}
+
+                                    {/* Boolean params (doSample) */}
+                                    {meta.type === 'boolean' && (
+                                        <div className="text-xs text-(--color-text-secondary)">
+                                            {isDisabled ? t('settings.prompts.generation.paramDisabled') : t('settings.prompts.generation.paramEnabled')}
+                                        </div>
+                                    )}
+
+                                    {/* String array params (stopSequences) */}
+                                    {meta.type === 'string[]' && (
+                                        <input
+                                            type="text"
+                                            value={Array.isArray(value) ? value.join(', ') : ''}
+                                            onChange={e => setLocalPrompts(prev => ({
+                                                ...prev,
+                                                [key]: e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean)
+                                            }))}
+                                            disabled={isDisabled}
+                                            placeholder="Comma-separated stop sequences"
+                                            className="w-full p-2 bg-(--color-bg-main) text-(--color-text-primary) rounded border border-(--color-border) text-sm disabled:opacity-50"
+                                        />
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
                 <div className="p-6 mt-auto border-t border-(--color-border) shrink-0 flex flex-wrap justify-end gap-3">
