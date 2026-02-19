@@ -5,8 +5,10 @@ import { X, ChevronDown, RotateCcw, Download, Upload, ArrowUp, ArrowDown, AlertT
 import { selectAllSettings, selectPrompts } from '../../entities/setting/selectors';
 import { settingsActions, initialState } from '../../entities/setting/slice';
 import { messagesActions } from '../../entities/message/slice';
-import type { Prompts, PromptItem, PromptRole, PromptType } from '../../entities/setting/types';
+import type { Prompts, PromptItem, PromptRole, PromptType, ApiProvider } from '../../entities/setting/types';
 import type { AppDispatch } from '../../app/store';
+import { Toggle } from '../Toggle';
+import { PARAM_DEFINITIONS, getProviderParams, getParamMeta } from '../../services/llm/parameterConfig';
 
 interface PromptModalProps {
     isOpen: boolean;
@@ -20,8 +22,18 @@ function PromptModal({ isOpen, onClose }: PromptModalProps) {
     const prompts = useSelector(selectPrompts);
 
     const currentApiProvider = settings.apiProvider;
+    const supportedParams = getProviderParams(currentApiProvider as ApiProvider);
     const [localPrompts, setLocalPrompts] = useState<Prompts>(prompts);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    const handleToggleParam = (paramKey: string, enabled: boolean) => {
+        setLocalPrompts(prev => ({
+            ...prev,
+            disabledParams: enabled
+                ? (prev.disabledParams || []).filter(k => k !== paramKey)
+                : [...(prev.disabledParams || []), paramKey]
+        }));
+    };
 
     // 타입 라벨 매핑
     const typeLabelMap: Record<PromptType, string> = {
@@ -359,7 +371,7 @@ function PromptModal({ isOpen, onClose }: PromptModalProps) {
                             <input
                                 type="range"
                                 min="0"
-                                max={currentApiProvider === 'claude' ? 1 : 2}
+                                max="2"
                                 step="0.01"
                                 value={localPrompts.temperature || 1.25}
                                 onChange={e => setLocalPrompts(prev => ({ ...prev, temperature: parseFloat(parseFloat(e.target.value).toFixed(2)) ?? -1 }))}
@@ -368,7 +380,7 @@ function PromptModal({ isOpen, onClose }: PromptModalProps) {
                             />
                             <div className="flex justify-between text-xs text-(--color-text-informative-primary) mt-1">
                                 <span>0</span>
-                                <span>{currentApiProvider === 'claude' ? 1 : 2}</span>
+                                <span>2</span>
                             </div>
                         </div>
                         <div className="flex flex-col">
