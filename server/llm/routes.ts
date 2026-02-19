@@ -27,6 +27,7 @@ router.post('/:clientId/llm/send', async (req, res, next) => {
             try {
                 fs.accessSync(metadataFile);
             } catch {
+                console.log(`[llm-routes] ❌ Client '${clientId}' not found`);
                 return res.status(404).json({ error: `Client '${clientId}' not found` });
             }
         }
@@ -41,6 +42,7 @@ router.post('/:clientId/llm/send', async (req, res, next) => {
         };
 
         await queue.enqueue(request);
+        console.log(`[llm-routes] 📨 Enqueued request ${request.id} for client ${clientId}, room ${roomId}`);
 
         return res.status(202).json({
             requestId: request.id,

@@ -166,7 +166,9 @@ async function sendCompletionPush(
     let subscription: PushSubscription;
     try {
         subscription = await readSubscriptions(clientId) as PushSubscription;
+        console.log(`[llm-worker:${clientId}] 📱 Push subscription found, sending notification...`);
     } catch {
+        console.log(`[llm-worker:${clientId}] 📱 No push subscription, skipping notification`);
         return;
     }
 
@@ -195,8 +197,9 @@ async function sendCompletionPush(
                 vapidPublicKey,
             })
         );
+        console.log(`[llm-worker:${clientId}] ✅ Push notification sent to ${characterName}`);
     } catch (error) {
-        console.warn(`[llm-worker:${clientId}] Push notification failed:`, error);
+        console.warn(`[llm-worker:${clientId}] ⚠️ Push notification failed:`, error);
     }
 }
 
@@ -205,15 +208,19 @@ async function processRequest(
     config: { webpush: WebPushLike; vapidPublicKey: string }
 ): Promise<void> {
     const safeClientId = sanitizeClientId(request.clientId);
+    console.log(`[llm-worker:${safeClientId}] 🔄 Processing request ${request.id} for room ${request.roomId}`);
     const release = await queue.acquireClientLock(safeClientId);
 
     try {
         await queue.markProcessing(request.id);
+        console.log(`[llm-worker:${safeClientId}] 📋 Request marked as processing`);
 
         store.dispatch({ type: 'sync/applyDeltaStart' });
         try {
+            console.log(`[llm-worker:${safeClientId}] 📂 Loading state from sync store...`);
             const metadata = await loadStateFromSyncStore(safeClientId);
             const stateBefore = store.getState();
+            console.log(`[llm-worker:${safeClientId}] ✅ State loaded (snapshotSeq: ${metadata.snapshotSeq})`);
 
             const room = selectRoomById(stateBefore, request.roomId);
             if (!room) {
@@ -221,7 +228,7 @@ async function processRequest(
             }
 
             if (stateBefore.settings.useImageResponse || stateBefore.settings.usePayloadImage) {
-                console.warn(`[llm-worker:${safeClientId}] Image generation disabled in worker; forcing text-only response.`);
+                console.warn(`[llm-worker:${safeClientId}] ⚠️ Image generation disabled in worker; forcing text-only response.`);
                 store.dispatch(settingsActions.setUseImageResponse(false));
                 store.dispatch(settingsActions.setUsePayloadImage(false));
             }
@@ -233,7 +240,10 @@ async function processRequest(
                 }
                 store.dispatch(messagesActions.upsertOne(userMessage));
             }
+            console.log(`[llm-worker:${safeClientId}] 📝 Added ${request.userMessages.length} user message(s) to store`);
 
+            console.log(`[llm-worker:${safeClientId}] 🤖 Calling LLM API...`);
+            const startTime = Date.now();
             const generatedMessages: Message[] = [];
             await headlessSendMessage({
                 store,
@@ -245,9 +255,12 @@ async function processRequest(
                         store.dispatch(messagesActions.removeOne(generated));
                         return;
                     }
+                    console.log(`[llm-worker:${safeClientId}] 💬 Received message from ${generated.authorId}: ${generated.content?.slice(0, 50)}...`);
                     generatedMessages.push(generated);
                 },
             });
+            const elapsed = Date.now() - startTime;
+            console.log(`[llm-worker:${safeClientId}] ✅ LLM completed in ${elapsed}ms, generated ${generatedMessages.length} message(s)`);
 
             const nextState = store.getState();
             const nextMetadata: SyncMetadata = {
@@ -256,9 +269,11 @@ async function processRequest(
                 version: metadata.version ?? persistConfig.version,
             };
 
+            console.log(`[llm-worker:${safeClientId}] 💾 Saving snapshot (seq: ${nextMetadata.snapshotSeq})...`);
             await writeSnapshot(safeClientId, JSON.stringify(buildSnapshot(nextState)));
             await updateMetadata(safeClientId, nextMetadata);
             await resetPatchLog(safeClientId);
+            console.log(`[llm-worker:${safeClientId}] ✅ Snapshot saved`);
 
             stateCache.set(safeClientId, { metadata: nextMetadata, patches: [] } as ServerState);
 
@@ -275,8 +290,9 @@ async function processRequest(
         }
 
         await queue.markCompleted(request.id);
+        console.log(`[llm-worker:${safeClientId}] 🎉 Request ${request.id} completed successfully`);
     } catch (error: any) {
-        console.error(`[llm-worker:${safeClientId}] Failed request ${request.id}:`, error);
+        console.error(`[llm-worker:${safeClientId}] ❌ Failed request ${request.id}:`, error);
         await queue.markFailed(request.id, error?.message ?? String(error));
     } finally {
         release();
@@ -286,11 +302,16 @@ async function processRequest(
 export function startLLMWorker(config: { webpush: WebPushLike; vapidPublicKey: string }): () => void {
     let polling = false;
 
+    console.log('[llm-worker] 🚀 LLM Worker started - polling every 2s');
+
     const poll = async () => {
         if (polling) return;
         polling = true;
         try {
             const pending = await queue.getPending();
+            if (pending.length > 0) {
+                console.log(`[llm-worker] 📥 Found ${pending.length} pending request(s)`);
+            }
             pending.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
             for (const request of pending) {
                 await processRequest(request, config);
@@ -314,5 +335,6 @@ export function startLLMWorker(config: { webpush: WebPushLike; vapidPublicKey: s
 
     return () => {
         clearInterval(interval);
+        console.log('[llm-worker] 🛑 LLM Worker stopped');
     };
 }
