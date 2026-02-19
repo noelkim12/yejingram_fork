@@ -529,6 +529,8 @@ const ko = {
                 clientIdLabel: "클라이언트 ID (영문/숫자/언더스코어/하이픈만 허용)",
                 clientIdPlaceholder: "예: {{idexample}}",
                 serverAddrLabel: "서버 주소",
+                backendUrl: "백엔드 서버 URL",
+                backendUrlDescription: "설정 시, LLM API를 직접 호출하는 대신 이 서버로 메시지를 전송합니다.",
                 autoSyncTitle: "자동 동기화 활성화",
                 autoSyncHint: "이 기기에서 발생한 변경 사항을 서버와 자동으로 동기화합니다.",
                 syncNow: "지금 동기화",

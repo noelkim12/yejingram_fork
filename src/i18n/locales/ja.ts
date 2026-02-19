@@ -527,6 +527,8 @@ const ja = {
                 clientIdLabel: "クライアント ID (英数字、アンダースコア、ハイフンのみ許可)",
                 clientIdPlaceholder: "例: {{idexample}}",
                 serverAddrLabel: "サーバーアドレス",
+                backendUrl: "バックエンドサーバーURL",
+                backendUrlDescription: "設定すると、LLM APIを直接呼び出す代わりに、このサーバーにメッセージを送信します。",
                 autoSyncTitle: "自動同期を有効化",
                 autoSyncHint: "このデバイスで行った変更をサーバーと自動的に同期します。",
                 syncNow: "今すぐ同期",

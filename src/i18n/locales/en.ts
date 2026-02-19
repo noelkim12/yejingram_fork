@@ -527,6 +527,8 @@ const en = {
                 clientIdLabel: "Client ID (only English letters, numbers, underscores, and hyphens allowed)",
                 clientIdPlaceholder: "e.g., {{idexample}}",
                 serverAddrLabel: "Server Address",
+                backendUrl: "Backend Server URL",
+                backendUrlDescription: "When configured, messages are sent to this server instead of calling LLM APIs directly.",
                 autoSyncTitle: "Enable Auto Sync",
                 autoSyncHint: "Automatically sync changes made on this device with the server.",
                 syncNow: "Sync Now",

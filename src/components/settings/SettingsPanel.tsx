@@ -401,8 +401,38 @@ function SettingsPanel({ openPromptModal, onClose }: SettingsPanelProps) {
                                         <input value={localSettings.syncSettings.syncClientId} onChange={e => updateSyncSettings('syncClientId', e.target.value)} className="w-full px-3 py-2 bg-(--color-bg-input-secondary) text-(--color-text-primary) rounded-lg border border-(--color-border) text-sm" placeholder={t('settings.others.sync.clientIdPlaceholder', { idexample: "my-device-1" })} />
                                     </div>
                                     <div>
-                                        <label className="text-xs text-(--color-text-secondary)">{t('settings.others.sync.serverAddrLabel')}</label>
-                                        <input value={localSettings.syncSettings.syncBaseUrl} onChange={e => updateSyncSettings('syncBaseUrl', e.target.value)} className="w-full px-3 py-2 bg-(--color-bg-input-secondary) text-(--color-text-primary) rounded-lg border border-(--color-border) text-sm" placeholder={`http://your-host:3001`} />
+                                        <label className="text-xs text-(--color-text-secondary)">{t('settings.others.sync.serverAddrLabel')} / {t('settings.others.sync.backendUrl')}</label>
+                                        <div className="flex gap-2">
+                                            <input value={localSettings.syncSettings.syncBaseUrl} onChange={e => updateSyncSettings('syncBaseUrl', e.target.value)} className="flex-1 px-3 py-2 bg-(--color-bg-input-secondary) text-(--color-text-primary) rounded-lg border border-(--color-border) text-sm" placeholder={`http://your-host:3001`} />
+                                            <button
+                                                onClick={async () => {
+                                                    if (!localSettings.syncSettings.syncBaseUrl) return;
+                                                    try {
+                                                        const response = await fetch(`${localSettings.syncSettings.syncBaseUrl}/api/health`);
+                                                        if (response.ok) {
+                                                            alert("Connection successful!");
+                                                        } else {
+                                                            alert("Connection failed: " + response.statusText);
+                                                        }
+                                                    } catch (err) {
+                                                        alert("Connection failed: " + (err instanceof Error ? err.message : String(err)));
+                                                    }
+                                                }}
+                                                className="px-3 py-2 bg-(--color-bg-input-secondary) hover:bg-(--color-bg-hover) text-(--color-text-primary) rounded-lg border border-(--color-border) text-sm transition-colors"
+                                                title="Test Connection"
+                                            >
+                                                <Cloud className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                        <p className="text-xs text-(--color-text-secondary) mt-1">
+                                            {t('settings.others.sync.backendUrlDescription')}
+                                        </p>
+                                        {localSettings.syncSettings.syncEnabled && localSettings.syncSettings.syncBaseUrl && (
+                                            <div className="mt-2 flex items-center gap-2 text-sm text-green-500 font-medium bg-green-500/10 px-3 py-2 rounded-lg border border-green-500/20">
+                                                <Cloud className="w-4 h-4" />
+                                                <span>서버 처리 모드 활성 (Server Processing Mode Active)</span>
+                                            </div>
+                                        )}
                                     </div>
                                     <Toggle
                                         id="settings-sync-enabled-toggle"
