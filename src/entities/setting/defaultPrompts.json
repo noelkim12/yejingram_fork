@@ -151,5 +151,15 @@
     "maxResponseTokens": 2048,
     "temperature": 1.25,
     "topP": 0.95,
-    "topK": 40
+    "topK": 40,
+    "frequencyPenalty": 0,
+    "presencePenalty": 0,
+    "stopSequences": [],
+    "seed": 0,
+    "candidateCount": 1,
+    "thinkingBudget": 8192,
+    "reasoningEffort": "medium",
+    "doSample": true,
+    "logprobs": 0,
+    "disabledParams": []
 }
