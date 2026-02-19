@@ -388,6 +388,27 @@ export const migrations = {
             }]
         });
         return state;
+    },
+    10: (state: any) => {
+        state = applyRules(state, {
+            add: [{
+                path: 'settings.prompts',
+                keys: ['frequencyPenalty', 'presencePenalty', 'stopSequences', 'seed', 'candidateCount', 'thinkingBudget', 'reasoningEffort', 'doSample', 'logprobs', 'disabledParams'],
+                defaults: {
+                    frequencyPenalty: 0,
+                    presencePenalty: 0,
+                    stopSequences: [],
+                    seed: 0,
+                    candidateCount: 1,
+                    thinkingBudget: 8192,
+                    reasoningEffort: 'medium',
+                    doSample: true,
+                    logprobs: 0,
+                    disabledParams: []
+                }
+            }]
+        });
+        return state;
     }
 } as MigrationManifest;
 
@@ -395,7 +416,7 @@ export const migrations = {
 export const persistConfig = {
     key: 'yejingram',
     storage: blobStorage as any,
-    version: 9,
+    version: 10,
     whitelist: ['characters', 'rooms', 'messages', 'settings', 'lastSaved', 'sync'],
     migrate: createMigrate(migrations, { debug: true }),
 };
