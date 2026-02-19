@@ -6,6 +6,7 @@ import webpush from 'web-push';
 import 'dotenv/config';
 import proactiveRouter from './proactive/routes.ts';
 import { initI18n, startProactiveLoop } from './proactive/loop.ts';
+import { startLLMWorker } from './llm/worker';
 
 interface ApiError extends Error {
     status?: number;
@@ -54,8 +55,8 @@ export async function ensureDataDir(clientId?: string): Promise<void> {
 import syncRouter from './sync/routes';
 app.use('/api', syncRouter);
 app.use('/api', proactiveRouter);
-// import llmRouter from './llm/routes';
-// app.use('/api', llmRouter);
+import llmRouter from './llm/routes';
+app.use('/api', llmRouter);
 
 app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
@@ -93,6 +94,9 @@ async function start() {
             startProactiveLoop({ syncBaseUrl: process.env.SYNC_BASE_URL })
                 .catch(err => console.error('[proactive-loop] Fatal error:', err));
             console.log('[unified-server] Proactive loop started');
+
+            startLLMWorker({ webpush, vapidPublicKey: pushPublicKey });
+            console.log('[unified-server] LLM worker started');
         }
 
         app.listen(PORT, () => {

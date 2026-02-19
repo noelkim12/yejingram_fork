@@ -164,7 +164,7 @@ function handleError(error: unknown, roomId: string, charId: number, dispatch: A
     dispatch(messagesActions.upsertOne(errorResponse));
 }
 
-async function sendViaBackend(
+export async function sendViaBackend(
     clientId: string,
     backendUrl: string,
     roomId: string,

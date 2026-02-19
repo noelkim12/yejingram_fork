@@ -4,7 +4,9 @@ import { nanoid } from 'nanoid';
 import { DATA_DIR } from '../index';
 import type { LLMRequest, LLMRequestQueue, LLMRequestStatus } from '../types';
 
-const REQUESTS_DIR = path.join(DATA_DIR, 'requests');
+function getRequestsDir() {
+    return path.join(DATA_DIR, 'requests');
+}
 
 const clientLocks = new Map<string, Promise<void>>();
 
@@ -24,11 +26,16 @@ export class LLMRequestQueueImpl implements LLMRequestQueue {
     private inMemoryRequests: Map<string, LLMRequest> = new Map();
 
     constructor() {
-        this.requestsDir = REQUESTS_DIR;
+        this.requestsDir = '';
+    }
+
+    private getRequestsDir(): string {
+        if (!this.requestsDir) this.requestsDir = getRequestsDir();
+        return this.requestsDir;
     }
 
     private getClientDir(clientId: string): string {
-        return path.join(this.requestsDir, clientId);
+        return path.join(this.getRequestsDir(), clientId);
     }
 
     private getFilePath(clientId: string, requestId: string): string {
@@ -80,7 +87,7 @@ export class LLMRequestQueueImpl implements LLMRequestQueue {
     async getPending(): Promise<LLMRequest[]> {
         const pending: LLMRequest[] = [];
         try {
-            const clientDirs = await fs.promises.readdir(this.requestsDir);
+            const clientDirs = await fs.promises.readdir(this.getRequestsDir());
             for (const clientId of clientDirs) {
                 const requests = await this.getByClientId(clientId);
                 pending.push(...requests.filter(r => r.status === 'pending'));
@@ -112,7 +119,7 @@ export class LLMRequestQueueImpl implements LLMRequestQueue {
 
     async recoverPendingRequests(): Promise<void> {
         try {
-            const clientDirs = await fs.promises.readdir(this.requestsDir);
+            const clientDirs = await fs.promises.readdir(this.getRequestsDir());
             for (const clientId of clientDirs) {
                 const clientDir = this.getClientDir(clientId);
                 const files = await fs.promises.readdir(clientDir);
@@ -166,7 +173,7 @@ export class LLMRequestQueueImpl implements LLMRequestQueue {
 
     private async findRequestById(requestId: string): Promise<LLMRequest | null> {
         try {
-            const clientDirs = await fs.promises.readdir(this.requestsDir);
+            const clientDirs = await fs.promises.readdir(this.getRequestsDir());
             for (const clientId of clientDirs) {
                 const filePath = this.getFilePath(clientId, requestId);
                 const request = await this.readRequest(filePath);
