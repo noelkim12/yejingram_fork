@@ -1,4 +1,4 @@
-import { store, type AppDispatch } from "../../app/store";
+import { store, type AppDispatch, isBrowser } from "../../app/store";
 import { selectCharacterById, selectAllCharacters } from "../../entities/character/selectors";
 import type { Message } from "../../entities/message/types";
 import type { Room } from "../../entities/room/types";
@@ -52,13 +52,13 @@ async function handleApiResponse(
             console.warn("Capping reaction delay to 10 seconds.");
             res.reactionDelay = 10000;
         }
-        await sleep(res.reactionDelay || 1000);
-        setTypingCharacterId(char.id);
+        if (isBrowser) await sleep(res.reactionDelay || 1000);
+        if (isBrowser) setTypingCharacterId(char.id);
 
         for (let i = 0; i < res.messages.length; i++) {
             const messagePart = res.messages[i];
             if (i > 0) {
-                await sleep(messagePart.delay || 1000);
+                if (isBrowser) await sleep(messagePart.delay || 1000);
             }
 
             const messages = await createMessageFromPart(messagePart, room.id, char, res.thoughtSignature);
@@ -81,7 +81,7 @@ async function handleApiResponse(
                 if (!exists) {
                     dispatch(roomsActions.addRoomMemory({ roomId: room.id, value: trimmed }));
                     // Toast 알림으로 새로운 메모리 추가를 알림
-                    toast.success(`${t('main.newMemory')}:\n"${trimmed}"`, {
+                    if (isBrowser) toast.success(`${t('main.newMemory')}:\n"${trimmed}"`, {
                         duration: 5000,
                     });
                 }
@@ -162,6 +162,23 @@ function handleError(error: unknown, roomId: string, charId: number, dispatch: A
         type: 'TEXT',
     };
     dispatch(messagesActions.upsertOne(errorResponse));
+}
+
+async function sendViaBackend(
+    clientId: string,
+    backendUrl: string,
+    roomId: string,
+    userMessages: Message[]
+): Promise<{ requestId: string }> {
+    const response = await fetch(`${backendUrl}/api/${clientId}/llm/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId, userMessages })
+    });
+    if (!response.ok) {
+        throw new Error(`Backend proxy error: ${response.statusText}`);
+    }
+    return response.json();
 }
 
 async function callApi(
@@ -265,11 +282,15 @@ async function callApi(
     let lastError: unknown = null;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120_000);
+        
         try {
             const response = await fetch(url, {
                 method: 'POST',
                 headers: headers,
-                body: JSON.stringify(payload)
+                body: JSON.stringify(payload),
+                signal: controller.signal
             });
 
             const data = await response.json();
@@ -284,7 +305,13 @@ async function callApi(
 
         } catch (error: unknown) {
             lastError = error;
-            console.error(`${apiProvider} error occurred while requesting (attempt ${attempt + 1}/${maxRetries}):`, error);
+            
+            // Handle abort error from timeout
+            if (error instanceof Error && error.name === 'AbortError') {
+                console.error(`${apiProvider} request timeout (120s) on attempt ${attempt + 1}/${maxRetries}`);
+            } else {
+                console.error(`${apiProvider} error occurred while requesting (attempt ${attempt + 1}/${maxRetries}):`, error);
+            }
 
             // If not the last attempt and custom provider, wait before retrying
             if (attempt < maxRetries - 1 && apiProvider === 'custom') {
@@ -293,6 +320,8 @@ async function callApi(
                 continue;
             }
             throw error;
+        } finally {
+            clearTimeout(timeoutId);
         }
     }
 
@@ -483,6 +512,24 @@ async function LLMSend(
 
 export async function SendMessage(room: Room, setTypingCharacterId: (id: number | null) => void, t: (key: string) => string, sendType: 'normal' | 'continuation' | 'proactive' = 'normal') {
     const state = store.getState();
+    const settings = selectAllSettings(state);
+
+    if (settings.syncSettings.syncEnabled && settings.syncSettings.syncBaseUrl) {
+        try {
+            const messages = selectMessagesByRoomId(state, room.id);
+            const recentUserMessages = messages.filter(m => m.authorId === 0).slice(-1);
+            await sendViaBackend(
+                settings.syncSettings.syncClientId,
+                settings.syncSettings.syncBaseUrl,
+                room.id,
+                recentUserMessages
+            );
+            return;
+        } catch (error) {
+            console.error('Backend proxy failed, falling back to direct LLM call:', error);
+        }
+    }
+
     const persona = selectSelectedPersona(state);
     const memberChars = room.memberIds.map(id => selectCharacterById(state, id));
 
@@ -495,6 +542,24 @@ export async function SendMessage(room: Room, setTypingCharacterId: (id: number 
 
 export async function SendGroupChatMessage(room: Room, setTypingCharacterId: (id: number | null) => void, t: (key: string) => string) {
     const state = store.getState();
+    const appSettings = selectAllSettings(state);
+
+    if (appSettings.syncSettings.syncEnabled && appSettings.syncSettings.syncBaseUrl) {
+        try {
+            const messages = selectMessagesByRoomId(state, room.id);
+            const recentUserMessages = messages.filter(m => m.authorId === 0).slice(-1);
+            await sendViaBackend(
+                appSettings.syncSettings.syncClientId,
+                appSettings.syncSettings.syncBaseUrl,
+                room.id,
+                recentUserMessages
+            );
+            return;
+        } catch (error) {
+            console.error('Backend proxy failed, falling back to direct LLM call:', error);
+        }
+    }
+
     const persona = selectSelectedPersona(state);
     const allCharacters = selectAllCharacters(state);
     const participants = room.memberIds.map(id => allCharacters.find(c => c.id === id)).filter((c): c is Character => !!c);

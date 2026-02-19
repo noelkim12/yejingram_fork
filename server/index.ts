@@ -2,6 +2,10 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import cors from 'cors';
 import path from 'path';
 import { promises as fsp } from 'fs';
+import webpush from 'web-push';
+import 'dotenv/config';
+import proactiveRouter from './proactive/routes.ts';
+import { initI18n, startProactiveLoop } from './proactive/loop.ts';
 
 interface ApiError extends Error {
     status?: number;
@@ -45,14 +49,12 @@ export async function ensureDataDir(clientId?: string): Promise<void> {
 }
 
 /* =====================================================
-   Routes (placeholder mount points)
+   Routes
 ===================================================== */
-// Mount points for route groups (will be uncommented in later tasks)
-// import syncRouter from './sync/routes';
-// import proactiveRouter from './proactive/routes';
+import syncRouter from './sync/routes';
+app.use('/api', syncRouter);
+app.use('/api', proactiveRouter);
 // import llmRouter from './llm/routes';
-// app.use('/api', syncRouter);
-// app.use('/api', proactiveRouter);
 // app.use('/api', llmRouter);
 
 app.get('/api/health', (_req, res) => {
@@ -78,6 +80,21 @@ app.use((err: ApiError, _req: Request, res: Response, _next: NextFunction) => {
 async function start() {
     try {
         await ensureDataDir();
+
+        const pushPublicKey = process.env.push_public_key;
+        const pushPrivateKey = process.env.push_private_key;
+        if (pushPublicKey && pushPrivateKey && process.env.SYNC_BASE_URL) {
+            await initI18n();
+            webpush.setVapidDetails(
+                'https://github.com/YEJIN-DEV/yejingram',
+                pushPublicKey,
+                pushPrivateKey
+            );
+            startProactiveLoop({ syncBaseUrl: process.env.SYNC_BASE_URL })
+                .catch(err => console.error('[proactive-loop] Fatal error:', err));
+            console.log('[unified-server] Proactive loop started');
+        }
+
         app.listen(PORT, () => {
             console.log(`[unified-server] Listening on port ${PORT}`);
             console.log(`[unified-server] Data directory: ${DATA_DIR}`);
@@ -88,6 +105,8 @@ async function start() {
     }
 }
 
-start();
+if (import.meta.main) {
+    start();
+}
 
 export default app;
