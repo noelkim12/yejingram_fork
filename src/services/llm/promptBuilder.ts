@@ -14,6 +14,8 @@ import type { PromptItem } from "../../entities/setting/types";
 import type { Lore } from "../../entities/lorebook/types";
 import { countTokens } from "../../utils/token";
 import { getBase64, getDataUrl } from "../binaryStore";
+import { PARAM_DEFINITIONS, getProviderParamName, getParamMeta } from './parameterConfig';
+import type { Prompts } from '../../entities/setting/types';
 
 export type GeminiContent = {
     role: string;
@@ -90,6 +92,76 @@ const OpenAIStructuredOutputSchema: OpenAIStructuredSchema = {
         },
     },
 };
+
+export function buildGenerationParams(
+    provider: ApiProvider,
+    prompts: Prompts
+): Record<string, any> {
+    const params: Record<string, any> = {};
+
+    for (const key of Object.keys(PARAM_DEFINITIONS)) {
+        const meta = getParamMeta(key);
+        if (!meta) {
+            continue;
+        }
+
+        if (prompts.disabledParams.includes(key)) {
+            continue;
+        }
+
+        const apiName = getProviderParamName(key, provider);
+        if (!apiName) {
+            continue;
+        }
+
+        const value = (prompts as any)[meta.key];
+        if (value === undefined || value === null) {
+            continue;
+        }
+
+        params[apiName] = value;
+    }
+
+    return params;
+}
+
+export function buildClaudeGenerationConfig(prompts: Prompts, model: string): Partial<ClaudeApiPayload> {
+    const baseParams = buildGenerationParams('claude', prompts);
+    const config: Partial<ClaudeApiPayload> = {};
+
+    if (baseParams.temperature !== undefined) {
+        config.temperature = baseParams.temperature > 1 ? 1 : baseParams.temperature;
+    }
+    if (baseParams.top_k !== undefined) {
+        config.top_k = baseParams.top_k;
+    }
+    if (
+        baseParams.top_p !== undefined
+        && !(
+            model.startsWith("claude-opus-4-1")
+            || model.startsWith("claude-sonnet-4-5")
+            || model.startsWith("claude-opus-4-5-20251101")
+        )
+    ) {
+        config.top_p = baseParams.top_p;
+    }
+    if (baseParams.stop_sequences !== undefined) {
+        config.stop_sequences = baseParams.stop_sequences;
+    }
+
+    if (!prompts.disabledParams.includes('maxResponseTokens')) {
+        config.max_tokens = prompts.maxResponseTokens;
+    }
+
+    if (baseParams.budget_tokens !== undefined) {
+        config.thinking = {
+            type: 'enabled',
+            budget_tokens: baseParams.budget_tokens,
+        };
+    }
+
+    return config;
+}
 
 function shouldIncludePromptItem(item: PromptItem, useStructuredOutput: boolean, room?: Room | null, useImageResponse?: boolean): boolean {
     if (item.type === 'plain-structured' && !useStructuredOutput) {
@@ -392,15 +464,28 @@ export async function buildGeminiApiPayload(
     const systemPrompt = buildSystemPrompt(persona, character, extraSystemInstruction, room, trimmedMessages, useStructuredOutput, useImageResponse);
     const contentOnlyPrompt = await buildGeminiContents([], isProactive, persona, character, room, useStructuredOutput, useImageResponse, usePayloadImage, useThoughtSignature, apiConfig);
 
+    const promptsState = selectPrompts(store.getState());
+    const baseParams = buildGenerationParams(provider, promptsState);
+
     const generationConfig: GeminiGenerationConfig = {
-        temperature: selectPrompts(store.getState()).temperature,
-        topP: selectPrompts(store.getState()).topP,
+        ...baseParams,
+        temperature: baseParams.temperature,
+        topP: baseParams.topP,
+        topK: baseParams.topK,
+        frequencyPenalty: baseParams.frequencyPenalty,
+        presencePenalty: baseParams.presencePenalty,
+        seed: baseParams.seed,
+        candidateCount: baseParams.candidateCount,
+        stopSequences: baseParams.stopSequences,
     };
 
-    const topK = selectPrompts(store.getState()).topK;
+    if (baseParams.thinkingBudget !== undefined) {
+        generationConfig.thinkingConfig = { thinkingBudget: baseParams.thinkingBudget };
+    }
 
-    if (topK) {
-        generationConfig.topK = topK;
+    if (baseParams.logprobs !== undefined && baseParams.logprobs > 0) {
+        generationConfig.responseLogprobs = true;
+        generationConfig.logprobs = baseParams.logprobs;
     }
 
     if (useStructuredOutput) {
@@ -587,6 +672,8 @@ export async function buildClaudeApiPayload(
 ): Promise<ClaudeApiPayload> {
     const maxTokens = selectPrompts(store.getState()).maxContextTokens;
     let trimmedMessages = [...messages];
+    const promptsState = selectPrompts(store.getState());
+    const claudeConfig = buildClaudeGenerationConfig(promptsState, apiConfig.model);
 
     const systemPrompt = buildSystemPrompt(persona, character, extraSystemInstruction, room, trimmedMessages, useStructuredOutput, useImageResponse);
     const contentOnlyPrompt = await buildClaudeContents([], isProactive, persona, apiConfig.model, character, extraSystemInstruction, room, useStructuredOutput, useImageResponse, usePayloadImage, apiConfig);
@@ -598,10 +685,7 @@ export async function buildClaudeApiPayload(
             type: "text",
             text: systemPrompt
         }],
-        temperature: selectPrompts(store.getState()).temperature > 1 ? 1 : selectPrompts(store.getState()).temperature,
-        top_k: selectPrompts(store.getState()).topK,
-        ...((apiConfig.model.startsWith("claude-opus-4-1") || apiConfig.model.startsWith("claude-sonnet-4-5") || apiConfig.model.startsWith("claude-opus-4-5-20251101")) ? {} : { top_p: selectPrompts(store.getState()).topP }),
-        max_tokens: selectPrompts(store.getState()).maxResponseTokens,
+        ...claudeConfig,
     };
 
     const tokenCountForPromptOnly = await countTokens({ payload: payload_promptOnly }, provider, apiConfig);
@@ -617,10 +701,7 @@ export async function buildClaudeApiPayload(
                 type: "text",
                 text: systemPrompt
             }],
-            temperature: selectPrompts(store.getState()).temperature > 1 ? 1 : selectPrompts(store.getState()).temperature,
-            top_k: selectPrompts(store.getState()).topK,
-            ...((apiConfig.model.startsWith("claude-opus-4-1") || apiConfig.model.startsWith("claude-sonnet-4-5") || apiConfig.model.startsWith("claude-opus-4-5-20251101")) ? {} : { top_p: selectPrompts(store.getState()).topP }),
-            max_tokens: selectPrompts(store.getState()).maxResponseTokens,
+            ...claudeConfig,
         };
 
         const tokenCount = await countTokens({ payload }, provider, apiConfig);
@@ -790,14 +871,29 @@ export async function buildOpenAIApiPayload(
 
         const response_format: OpenAIApiPayload['response_format'] = allowResponseFormat ? (provider !== 'deepseek' ? JSONSchema : { type: 'json_object' }) : undefined;
 
+        const promptsState = selectPrompts(store.getState());
+        const baseParams = buildGenerationParams(provider, promptsState);
+
         const payload: OpenAIApiPayload = {
             model: apiConfig.model,
             messages: history,
-            temperature: apiConfig.model == 'gpt-5' ? 1 : selectPrompts(store.getState()).temperature,
-            top_p: apiConfig.model == 'gpt-5' ? undefined : selectPrompts(store.getState()).topP,
-            max_completion_tokens: selectPrompts(store.getState()).maxResponseTokens,
+            temperature: apiConfig.model == 'gpt-5' ? 1 : baseParams.temperature,
+            top_p: apiConfig.model == 'gpt-5' ? undefined : baseParams.top_p,
+            frequency_penalty: baseParams.frequency_penalty,
+            presence_penalty: baseParams.presence_penalty,
+            stop: baseParams.stop,
+            max_completion_tokens: promptsState.maxResponseTokens,
             response_format,
         };
+
+        if (baseParams.reasoning_effort !== undefined) {
+            payload.reasoning_effort = baseParams.reasoning_effort;
+        }
+
+        if (baseParams.top_logprobs !== undefined && baseParams.top_logprobs > 0) {
+            payload.logprobs = true;
+            payload.top_logprobs = baseParams.top_logprobs;
+        }
 
         // If using OpenRouter, include provider routing preferences when available
         if (provider === 'openrouter') {
