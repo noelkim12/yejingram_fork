@@ -28,7 +28,7 @@ webpush.setVapidDetails(
     pushPrivateKey
 );
 
-const port = Number(process.env.HEADLESS_PORT ?? 4001);
+const port = Number(process.env.HEADLESS_PORT ?? 39186);
 const app = express();
 app.use(express.json());
 app.use((req, res, next) => {
