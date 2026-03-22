@@ -27,3 +27,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+node-compile-cache/
+data/
+.history/
+tsx-1000/

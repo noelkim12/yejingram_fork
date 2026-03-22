@@ -18,6 +18,7 @@ import { callImageGeneration } from '../../services/image/ImageCaller';
 import { deleteBlob, getBlob, makeBinaryUrl, makeMessageBinaryKey, saveBase64 } from '../../services/binaryStore';
 import type { Sticker } from '../../entities/character/types';
 import { FilePreview } from './FilePreview';
+import { selectAllSettings } from '../../entities/setting/selectors';
 
 // Helper function for date formatting
 const formatDateSeparator = (date: Date, locale: string | undefined): string => {
@@ -161,10 +162,13 @@ const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(({
   const { t, i18n } = useTranslation();
   const dispatch = useDispatch<AppDispatch>();
   const allCharacters = useSelector((state: RootState) => charactersAdapter.getSelectors().selectAll(state.characters));
+  const settings = useSelector(selectAllSettings);
+  const imagePlaceholder = settings.imageSettings?.imagePlaceholder ?? false;
   const animatedMessageIds = useRef(new Set<string>());
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [expandedStickers, setExpandedStickers] = useState<Set<string>>(new Set());
+  const [revealedImages, setRevealedImages] = useState<Set<string>>(new Set());
   const [imageModalOpen, setImageModalOpen] = useState<boolean>(false);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string>('');
   const [regeneratingImageIds, setRegeneratingImageIds] = useState<Set<string>>(new Set());
@@ -399,14 +403,14 @@ const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(({
         );
       } else if ((msg.type === 'IMAGE' || msg.type === 'AUDIO' || msg.type === 'VIDEO' || msg.type === 'FILE') && msg.file) {
         const isRegenerating = regeneratingImageIds.has(msg.id.toString());
+        const isImageBlurred = msg.type === 'IMAGE' && imagePlaceholder && !revealedImages.has(msg.id.toString());
         return (
           <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} space-y-1`}>
             <div
               onClick={() => {
                 if (!(msg.type === 'IMAGE' && msg.file) || isRegenerating) return;
-                // Mobile(coarse pointer): single tap shows controls, double-tap opens modal
+                if (isImageBlurred) return;
                 if (isCoarsePointer) {
-                  // First tap: show controls; second tap on same image: open modal
                   if (activeMessageId !== msg.id.toString()) {
                     showControlsWithAutoHide(msg.id.toString());
                     return;
@@ -415,12 +419,17 @@ const MessageList = forwardRef<VirtuosoHandle, MessageListProps>(({
                   setActiveMessageId(null);
                   return;
                 }
-                // Desktop: open modal on single click
                 void openImageModalForMessage(msg);
               }}
-              className={`relative ${msg.type === 'IMAGE' && !isRegenerating ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
+              className={`relative ${msg.type === 'IMAGE' && !isRegenerating && !isImageBlurred ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
             >
-              <FilePreview file={msg.file} preview={false} t={t} />
+              <FilePreview
+                file={msg.file}
+                preview={false}
+                t={t}
+                blurred={isImageBlurred}
+                onReveal={() => setRevealedImages(prev => new Set([...prev, msg.id.toString()]))}
+              />
               {isRegenerating && (
                 <div className="absolute inset-0 bg-(--color-bg-shadow)/50 flex items-center justify-center rounded-lg">
                   <div className="flex flex-col items-center text-(--color-text-accent)">

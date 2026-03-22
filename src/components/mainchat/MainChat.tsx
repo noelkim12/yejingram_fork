@@ -1,5 +1,5 @@
 import type { Room } from '../../entities/room/types';
-import { Menu, MoreHorizontal, Smile, X, Plus, Paperclip, Edit2, Check, XCircle, StickyNote, Brain, BookOpen, ChevronDown, Zap, BellRing } from 'lucide-react';
+import { Menu, MoreHorizontal, Smile, X, Plus, Paperclip, Edit2, Check, XCircle, StickyNote, Brain, BookOpen, ChevronDown, Zap, BellRing, Cloud } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectCharacterById } from '../../entities/character/selectors';
@@ -10,7 +10,7 @@ import MessageList from './Message';
 import { messagesActions } from '../../entities/message/slice';
 import { roomsActions } from '../../entities/room/slice';
 import { Avatar, GroupChatAvatar } from '../../utils/Avatar';
-import { SendMessage, SendGroupChatMessage } from '../../services/llm/LLMcaller';
+import { SendMessage, SendGroupChatMessage, sendViaBackend } from '../../services/llm/LLMcaller';
 import type { Sticker } from '../../entities/character/types';
 import { StickerPanel } from './StickerPanel';
 import type { Message } from '../../entities/message/types';
@@ -91,7 +91,9 @@ function MainChat({ room, isMobileSidebarOpen, onToggleMobileSidebar, onToggleCh
   );
   const settings = useSelector(selectAllSettings);
 
-  const handleEditRoomName = () => {
+    const isBackendMode = settings.syncSettings.syncEnabled && settings.syncSettings.syncBaseUrl;
+
+    const handleEditRoomName = () => {
     if (!room) return;
     setNewRoomName(room.name);
     setIsEditingRoomName(true);
@@ -263,6 +265,16 @@ function MainChat({ room, isMobileSidebarOpen, onToggleMobileSidebar, onToggleCh
     setFileToSend(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+
+    if (isBackendMode) {
+      void sendViaBackend(
+        settings.syncSettings.syncClientId,
+        settings.syncSettings.syncBaseUrl,
+        room.id,
+        userMessage
+      ).catch(err => console.error('[Backend Mode] Error:', err));
+      return;
     }
 
     // Schedule (or reschedule) LLM request for this room after 1s of no typing
@@ -481,6 +493,7 @@ function MainChat({ room, isMobileSidebarOpen, onToggleMobileSidebar, onToggleCh
             handleRequestProactiveChat={handleRequestProactiveChat}
             onToggleProactive={(enabled) => dispatch(roomsActions.toggleProactive({ roomId: room.id, enabled }))}
             virtuosoRef={messagesContainerRef}
+            isBackendMode={isBackendMode}
           />
         </div>
       </div>
@@ -743,6 +756,7 @@ interface InputAreaProps {
   renderUserStickerPanel?: () => React.ReactNode;
   handleRequestProactiveChat: () => void;
   onToggleProactive?: (enabled: boolean) => void;
+  isBackendMode?: boolean;
 }
 
 function InputArea({
@@ -760,7 +774,8 @@ function InputArea({
   onUserActivity,
   renderUserStickerPanel,
   handleRequestProactiveChat,
-  onToggleProactive
+  onToggleProactive,
+  isBackendMode
 }: InputAreaProps) {
   const { t } = useTranslation();
   const [text, setText] = useState("");
@@ -959,6 +974,12 @@ function InputArea({
               >
                 <Smile className="w-5 h-5" />
               </button>
+
+              {isBackendMode && (
+                <span className="text-xs text-gray-500 flex items-center gap-1" title={t('main.backendMode')}>
+                  <Cloud size={12} />
+                </span>
+              )}
 
               {(text.trim() || stickerToSend) ? (
                 <button

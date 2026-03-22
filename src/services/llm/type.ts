@@ -68,6 +68,14 @@ export interface GeminiGenerationConfig {
     stopSequences?: string[];
     responseMimeType?: string; // e.g., 'application/json'
     responseSchema?: GeminiStructuredSchema;
+    frequencyPenalty?: number;
+    presencePenalty?: number;
+    seed?: number;
+    responseLogprobs?: boolean;
+    logprobs?: number;
+    thinkingConfig?: {
+        thinkingBudget?: number;
+    };
 }
 
 export interface ClaudeApiPayload {
@@ -90,10 +98,15 @@ export interface ClaudeApiPayload {
         type: string;
         text: string;
     }[];
-    temperature: number;
-    top_k: number;
+    temperature?: number;
+    top_k?: number;
     top_p?: number;
-    max_tokens: number;
+    max_tokens?: number;
+    stop_sequences?: string[];
+    thinking?: {
+        type: string;
+        budget_tokens?: number;
+    };
 }
 
 // ---------- OpenAI ----------
@@ -144,4 +157,10 @@ export interface OpenAIApiPayload {
         order?: string[];
         allow_fallbacks?: boolean;
     };
+    frequency_penalty?: number;
+    presence_penalty?: number;
+    stop?: string[];
+    logprobs?: boolean;
+    top_logprobs?: number;
+    reasoning_effort?: string;
 }

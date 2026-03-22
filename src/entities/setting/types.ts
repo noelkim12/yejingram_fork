@@ -55,6 +55,16 @@ export interface Prompts {
     temperature: number;
     topP: number;
     topK: number;
+    frequencyPenalty: number;
+    presencePenalty: number;
+    stopSequences: string[];
+    seed: number;
+    candidateCount: number;
+    thinkingBudget: number;
+    reasoningEffort: string;
+    doSample: boolean;
+    logprobs: number;
+    disabledParams: string[];
 }
 
 export interface SettingsState {

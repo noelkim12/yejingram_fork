@@ -31,12 +31,20 @@ export async function buildNovelAIImagePayload(positivePrompt: string, negativeP
         return Math.floor(Math.random() * (max - min + 1)) + min;
     }
 
+    const toPositiveInt = (value: unknown, fallback: number): number => {
+        const parsed = Number.parseInt(String(value), 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+    };
+
+    const width = toPositiveInt(naiConfig?.width, 512);
+    const height = toPositiveInt(naiConfig?.height, 768);
+
     let skipCfgAboveSigma = null;
     if (naiConfig?.varietyPlus) {
         if (model === 'nai-diffusion-4-5-full' || model === 'nai-diffusion-4-5-curated') {
-            skipCfgAboveSigma = Math.sqrt(naiConfig?.width || 512 * naiConfig?.height || 768) * 0.05766;
+            skipCfgAboveSigma = Math.sqrt(width * height) * 0.05766;
         } else {
-            skipCfgAboveSigma = Math.sqrt(naiConfig?.width || 512 * naiConfig?.height || 768) * 0.01889;
+            skipCfgAboveSigma = Math.sqrt(width * height) * 0.01889;
         }
     }
 
@@ -51,8 +59,8 @@ export async function buildNovelAIImagePayload(positivePrompt: string, negativeP
             "controlnet_strength": 1,
             "dynamic_thresholding": false,
             "n_samples": 1,
-            "width": naiConfig?.width || 512,
-            "height": naiConfig?.height || 768,
+            "width": width,
+            "height": height,
             "sampler": naiConfig?.sampler || "k_dpmpp_2m_sde",
             "steps": naiConfig?.steps || 28,
             "scale": naiConfig?.scale || 5,

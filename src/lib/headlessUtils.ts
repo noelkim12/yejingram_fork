@@ -4,6 +4,7 @@ import { selectMessagesByRoomId } from '../entities/message/selectors';
 import type { Message } from '../entities/message/types';
 import type { Room } from '../entities/room/types';
 import { SendMessage } from '../services/llm/LLMcaller';
+import type { LlmTransport } from '../services/llm/workerPolicies';
 import i18next from 'i18next';
 import { store, type RootState, type store as RootStore } from '../app/store';
 
@@ -61,6 +62,7 @@ export async function headlessSendMessage({
     onComplete,
     t = i18next.t,
     mode = 'normal',
+    transport = 'local',
 }: {
     store: typeof RootStore;
     room: any;
@@ -69,6 +71,7 @@ export async function headlessSendMessage({
     onComplete?: () => void;
     t?: typeof i18next.t;
     mode?: 'normal' | 'continuation' | 'proactive';
+    transport?: LlmTransport;
 }) {
     const beforeMessages = selectMessagesByRoomId(store.getState(), room.id);
     const beforeIds = new Set(beforeMessages.map(m => m.id));
@@ -93,7 +96,8 @@ export async function headlessSendMessage({
                 if (onStart) onStart(id);
             },
             t,
-            mode
+            mode,
+            transport
         );
         if (onComplete) onComplete();
     } finally {

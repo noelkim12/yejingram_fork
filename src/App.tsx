@@ -16,7 +16,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { selectRoomById } from './entities/room/selectors'
 import { selectEditingCharacterId } from './entities/character/selectors'
 import { selectAllSettings, selectColorTheme, selectUILanguage, selectLastAnnouncementCommitTime } from './entities/setting/selectors'
-import { type RootState } from './app/store'
+import { store, type RootState } from './app/store'
 import { setActiveRoomId } from './utils/activeRoomTracker'
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Analytics } from '@vercel/analytics/react';
@@ -26,6 +26,7 @@ import i18n from './i18n/i18n'
 import { settingsActions } from './entities/setting/slice'
 import { charactersActions } from './entities/character/slice'
 import { syncService } from './services/syncService'
+import { initReconnectSync } from './services/reconnectSync'
 import { fetchLatestCommitTime } from './services/announcements'
 import { selectIsSyncConflict, selectIsSyncing } from './entities/sync/selectors'
 import { roomsActions } from './entities/room/slice'
@@ -157,6 +158,11 @@ function App() {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [syncEnabled, isSyncing]);
+
+  // Sync on tab visibility change — pull updates when user returns after 5+ seconds
+  useEffect(() => {
+    initReconnectSync();
+  }, []);
 
   // Check for new announcements on mount
   useEffect(() => {
