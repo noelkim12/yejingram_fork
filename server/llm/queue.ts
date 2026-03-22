@@ -1,12 +1,6 @@
-import fs from 'fs';
-import path from 'path';
 import { nanoid } from 'nanoid';
-import { DATA_DIR } from '../index';
+import { getStorage } from '../storage';
 import type { LLMRequest, LLMRequestQueue, LLMRequestStatus } from '../types';
-
-function getRequestsDir() {
-    return path.join(DATA_DIR, 'requests');
-}
 
 const clientLocks = new Map<string, Promise<void>>();
 
@@ -22,51 +16,24 @@ export async function acquireClientLock(clientId: string): Promise<() => void> {
 }
 
 export class LLMRequestQueueImpl implements LLMRequestQueue {
-    private requestsDir: string;
     private inMemoryRequests: Map<string, LLMRequest> = new Map();
 
     constructor() {
-        this.requestsDir = '';
-    }
-
-    private getRequestsDir(): string {
-        if (!this.requestsDir) this.requestsDir = getRequestsDir();
-        return this.requestsDir;
-    }
-
-    private getClientDir(clientId: string): string {
-        return path.join(this.getRequestsDir(), clientId);
-    }
-
-    private getFilePath(clientId: string, requestId: string): string {
-        return path.join(this.getClientDir(clientId), `${requestId}.json`);
+        return;
     }
 
     async enqueue(request: LLMRequest): Promise<void> {
         const normalizedRequest = request.id ? request : { ...request, id: nanoid() };
-        const clientDir = this.getClientDir(normalizedRequest.clientId);
-        await fs.promises.mkdir(clientDir, { recursive: true });
-        const filePath = this.getFilePath(normalizedRequest.clientId, normalizedRequest.id);
-        await fs.promises.writeFile(filePath, JSON.stringify(normalizedRequest, null, 2));
+        await getStorage().queue.enqueue(normalizedRequest);
         this.inMemoryRequests.set(normalizedRequest.id, normalizedRequest);
     }
 
     async dequeue(clientId: string): Promise<LLMRequest | null> {
-        const clientDir = this.getClientDir(clientId);
-        try {
-            const files = await fs.promises.readdir(clientDir);
-            for (const file of files) {
-                if (!file.endsWith('.json')) continue;
-                const request = await this.readRequest(path.join(clientDir, file));
-                if (request && request.status === 'pending') {
-                    this.inMemoryRequests.set(request.id, request);
-                    return request;
-                }
-            }
-        } catch (err: any) {
-            if (err.code !== 'ENOENT') throw err;
+        const request = await getStorage().queue.dequeuePendingByClient(clientId);
+        if (request) {
+            this.inMemoryRequests.set(request.id, request);
         }
-        return null;
+        return request;
     }
 
     async markProcessing(requestId: string): Promise<void> {
@@ -85,71 +52,27 @@ export class LLMRequestQueueImpl implements LLMRequestQueue {
     }
 
     async getPending(): Promise<LLMRequest[]> {
-        const pending: LLMRequest[] = [];
-        try {
-            const clientDirs = await fs.promises.readdir(this.getRequestsDir());
-            for (const clientId of clientDirs) {
-                const requests = await this.getByClientId(clientId);
-                pending.push(...requests.filter(r => r.status === 'pending'));
-            }
-        } catch (err: any) {
-            if (err.code !== 'ENOENT') throw err;
+        const pending = await getStorage().queue.getPending();
+        for (const request of pending) {
+            this.inMemoryRequests.set(request.id, request);
         }
         return pending;
     }
 
     async getByClientId(clientId: string): Promise<LLMRequest[]> {
-        const requests: LLMRequest[] = [];
-        const clientDir = this.getClientDir(clientId);
-        try {
-            const files = await fs.promises.readdir(clientDir);
-            for (const file of files) {
-                if (!file.endsWith('.json')) continue;
-                const request = await this.readRequest(path.join(clientDir, file));
-                if (request) {
-                    requests.push(request);
-                    this.inMemoryRequests.set(request.id, request);
-                }
-            }
-        } catch (err: any) {
-            if (err.code !== 'ENOENT') throw err;
+        const requests = await getStorage().queue.getByClientId(clientId);
+        for (const request of requests) {
+            this.inMemoryRequests.set(request.id, request);
         }
         return requests;
     }
 
     async recoverPendingRequests(): Promise<void> {
-        try {
-            const clientDirs = await fs.promises.readdir(this.getRequestsDir());
-            for (const clientId of clientDirs) {
-                const clientDir = this.getClientDir(clientId);
-                const files = await fs.promises.readdir(clientDir);
-                for (const file of files) {
-                    if (!file.endsWith('.json')) continue;
-                    const request = await this.readRequest(path.join(clientDir, file));
-                    if (!request) continue;
-                    this.inMemoryRequests.set(request.id, request);
-                    if (request.status === 'processing') {
-                        await this.updateStatus(request.id, 'pending');
-                    }
-                }
-            }
-        } catch (err: any) {
-            if (err.code !== 'ENOENT') throw err;
-        }
+        await getStorage().queue.recoverProcessingToPending();
     }
 
     async acquireClientLock(clientId: string): Promise<() => void> {
         return acquireClientLock(clientId);
-    }
-
-    private async readRequest(filePath: string): Promise<LLMRequest | null> {
-        try {
-            const content = await fs.promises.readFile(filePath, 'utf-8');
-            return JSON.parse(content) as LLMRequest;
-        } catch (err: any) {
-            if (err.code === 'ENOENT') return null;
-            throw err;
-        }
     }
 
     private async updateStatus(
@@ -166,35 +89,23 @@ export class LLMRequestQueueImpl implements LLMRequestQueue {
         if (error) request.error = error;
         if (!error && status !== 'failed') delete request.error;
 
-        const filePath = this.getFilePath(request.clientId, requestId);
-        await fs.promises.writeFile(filePath, JSON.stringify(request, null, 2));
+        await getStorage().queue.update(request);
         this.inMemoryRequests.set(requestId, request);
     }
 
     private async findRequestById(requestId: string): Promise<LLMRequest | null> {
-        try {
-            const clientDirs = await fs.promises.readdir(this.getRequestsDir());
-            for (const clientId of clientDirs) {
-                const filePath = this.getFilePath(clientId, requestId);
-                const request = await this.readRequest(filePath);
-                if (request) return request;
-            }
-        } catch (err: any) {
-            if (err.code !== 'ENOENT') throw err;
-        }
-        return null;
+        return getStorage().queue.findRequestById(requestId);
     }
 
     private async cleanup(requestId: string): Promise<void> {
         const request = this.inMemoryRequests.get(requestId) || await this.findRequestById(requestId);
         if (!request) return;
 
-        const filePath = this.getFilePath(request.clientId, requestId);
         try {
-            await fs.promises.unlink(filePath);
+            await getStorage().queue.delete(requestId);
             this.inMemoryRequests.delete(requestId);
-        } catch (err: any) {
-            if (err.code !== 'ENOENT') console.error('Failed to cleanup request:', err);
+        } catch (err) {
+            console.error('Failed to cleanup request:', err);
         }
     }
 }

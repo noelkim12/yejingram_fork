@@ -19,7 +19,7 @@ export const initialApiConfigs: Record<ApiProvider, ApiConfig> = {
 
 export const initialSyncSettings: Sync = {
     syncEnabled: false,
-    syncClientId: '',
+    syncClientId: 'default',
     syncBaseUrl: '',
 };
 

@@ -6,6 +6,11 @@ import { selectCharacterById } from '../../src/entities/character/selectors.ts';
 import { headlessLoadState, headlessSendMessage, printMessages } from '../../src/lib/headlessUtils.ts';
 import type { ProactiveTimeRestriction, ProactivePeriodicSettings, ProactiveProbabilisticSettings } from '../../src/entities/setting/types.ts';
 import { readSubscriptions, prepareAvatarCache, avatarCache } from './routes.ts';
+import { broadcastLLMComplete } from '../llm/events';
+import { stateCache } from '../index';
+import { getStorage } from '../storage';
+import { persistConfig } from '../../src/app/store';
+import type { ServerState, SyncMetadata } from '../../src/entities/sync/types';
 import en from '../../src/i18n/locales/en.ts';
 import ko from '../../src/i18n/locales/ko.ts';
 import ja from '../../src/i18n/locales/ja.ts';
@@ -141,9 +146,9 @@ export interface ProactiveLoopConfig {
 
 export async function startProactiveLoop(config: ProactiveLoopConfig): Promise<void> {
     while (true) {
-        const subscription = await readSubscriptions();
+        const subscriptions = await readSubscriptions();
 
-        for (const [clientId, push] of Object.entries(subscription)) {
+        for (const [clientId, push] of Object.entries(subscriptions)) {
             try {
                 console.log(`[${clientId}] ${i18next.t('proactiveServer.restoreStart')}`);
 
@@ -247,6 +252,38 @@ export async function startProactiveLoop(config: ProactiveLoopConfig): Promise<v
                     t: i18next.t,
                     mode: 'proactive',
                 });
+
+                const updatedState = store.getState();
+                const currentSync = updatedState.sync;
+                const buildSnapshot = (s: typeof updatedState) => ({
+                    characters: s.characters,
+                    rooms: s.rooms,
+                    messages: s.messages,
+                    settings: s.settings,
+                    lastSaved: s.lastSaved,
+                });
+                const nextMetadata: SyncMetadata = {
+                    snapshotSeq: currentSync.snapshotSeq + 1,
+                    patchSeq: 0,
+                    version: persistConfig.version,
+                };
+
+                try {
+                    await getStorage().sync.replaceState(clientId, {
+                        snapshot: JSON.stringify(buildSnapshot(updatedState)),
+                        metadata: nextMetadata,
+                    });
+                    stateCache.set(clientId, { metadata: nextMetadata, patches: [] } as ServerState);
+                    broadcastLLMComplete(clientId, {
+                        requestId: 'proactive',
+                        roomId: randomRoom.id,
+                        snapshotSeq: nextMetadata.snapshotSeq,
+                        patchSeq: 0,
+                    });
+                    console.log(`[${clientId}] Proactive snapshot saved (seq: ${nextMetadata.snapshotSeq}) and SSE broadcast sent`);
+                } catch (saveErr) {
+                    console.error(`[${clientId}] Failed to save proactive snapshot:`, saveErr);
+                }
             } catch (err) {
                 console.error(`[${clientId}] Unhandled error during proactive processing:`, err);
             }

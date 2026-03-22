@@ -553,6 +553,14 @@ const ko = {
                 autoSyncHint: "이 기기에서 발생한 변경 사항을 서버와 자동으로 동기화합니다.",
                 syncNow: "지금 동기화",
                 restoreRemote: "서버로부터 복원",
+                push: {
+                    title: "Push 알림",
+                    description: "서버에서 LLM 응답이 완료되면 브라우저 Push 알림을 받습니다.",
+                    request: "알림 허용",
+                    enabled: "알림 활성화됨",
+                    denied: "알림이 브라우저에서 차단되었습니다. 브라우저 설정에서 허용해주세요.",
+                    requiresSync: "동기화 설정이 필요합니다",
+                },
                 failed: "동기화에 실패했습니다. 서버 주소와 네트워크를 확인하세요.",
                 restoreFailed: "복원에 실패했습니다. 서버 주소와 네트워크를 확인하세요.",
                 conflict: {

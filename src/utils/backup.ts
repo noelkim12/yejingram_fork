@@ -500,6 +500,69 @@ export async function restoreStateFromServer(clientId: string, baseURL: string, 
   return false;
 }
 
+export async function pullLatestState(clientId: string, baseURL: string): Promise<boolean> {
+  try {
+    const currentState = store.getState();
+    const queryParams = new URLSearchParams({
+      sinceSnapshotSeq: currentState.sync.snapshotSeq.toString(),
+      sincePatchSeq: '0',
+      full: 'true',
+    });
+
+    const serverResponse: ClientSyncResponse | null = await fetchWithProgress(
+      `${baseURL}/api/${clientId}/sync?${queryParams.toString()}`
+    );
+    if (!serverResponse) return false;
+
+    const serverState: ClientSyncResponse = serverResponse;
+
+    if (
+      serverState.snapshotSeq === currentState.sync.snapshotSeq &&
+      serverState.patchSeq === currentState.sync.patchSeq
+    ) {
+      return false;
+    }
+
+    let targetState: Partial<RootState>;
+    if (serverState.snapshotSeq > currentState.sync.snapshotSeq) {
+      const snapshotResponse: RootState = await fetchWithProgress(
+        `${baseURL}/api/${clientId}/snapshot`
+      );
+      targetState = applyPatch(snapshotResponse, serverState.patches);
+    } else {
+      targetState = applyPatch(currentState, serverState.patches);
+    }
+
+    const needed = collectBinaryStorageKeysFromState(targetState as RootState);
+    if (needed.length > 0) {
+      await downloadBinariesFromServer(clientId, baseURL, needed);
+    }
+
+    store.dispatch({ type: 'sync/applyDeltaStart' });
+    const { characters, rooms, messages, settings, lastSaved } = targetState;
+    if (characters) store.dispatch(charactersActions.importCharacters(entityStateToArray(characters)));
+    if (rooms) store.dispatch(roomsActions.importRooms(entityStateToArray(rooms)));
+    if (messages) store.dispatch(messagesActions.importMessages(entityStateToArray(messages)));
+    if (settings) store.dispatch(settingsActions.importSettings(settings));
+    if (lastSaved) store.dispatch(lastSavedActions.importLastSaved(lastSaved));
+    store.dispatch(syncActions.updateFromSnapshot({
+      snapshotSeq: serverState.snapshotSeq,
+      patchSeq: serverState.patchSeq,
+    }));
+    store.dispatch(syncActions.clearPatchQueue());
+    store.dispatch(syncActions.resolveConflict());
+    store.dispatch({ type: 'sync/applyDeltaEnd' });
+    persistor.persist();
+
+    return true;
+  } catch (error) {
+    console.error('[pullLatestState] Failed:', error);
+    return false;
+  } finally {
+    store.dispatch(uiActions.clearSyncProgress());
+  }
+}
+
 export function handleBackupError(
   error: BackupError,
   clientId: string,

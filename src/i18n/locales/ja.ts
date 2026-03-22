@@ -551,6 +551,14 @@ const ja = {
                 autoSyncHint: "このデバイスで行った変更をサーバーと自動的に同期します。",
                 syncNow: "今すぐ同期",
                 restoreRemote: "サーバーから復元",
+                push: {
+                    title: "Push通知",
+                    description: "サーバーでLLM応答が完了すると、ブラウザPush通知を受け取ります。",
+                    request: "通知を許可",
+                    enabled: "通知が有効です",
+                    denied: "通知がブラウザでブロックされています。ブラウザ設定で許可してください。",
+                    requiresSync: "同期設定が必要です",
+                },
                 failed: "同期に失敗しました。サーバーアドレスとネットワークを確認してください。",
                 restoreFailed: "復元に失敗しました。サーバーアドレスとネットワークを確認してください。",
                 conflict: {

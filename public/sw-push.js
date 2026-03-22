@@ -16,7 +16,9 @@ self.addEventListener('push', (event) => {
         body: data.body,
         icon: data.icon,
         badge: data.badge,
-        data: data.data,
+        tag: data.tag,
+        renotify: true,
+        data: data.data || {},
     };
 
     event.waitUntil(self.registration.showNotification(title, options));

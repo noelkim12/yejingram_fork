@@ -1,8 +1,7 @@
 import { Router } from 'express';
-import fs from 'fs';
-import path from 'path';
 import { nanoid } from 'nanoid';
-import { sanitizeClientId, stateCache, DATA_DIR } from '../index';
+import { sanitizeClientId, stateCache } from '../index';
+import { getStorage } from '../storage';
 import { queue } from './queue';
 import type { LLMRequest } from '../types';
 
@@ -23,10 +22,8 @@ router.post('/:clientId/llm/send', async (req, res, next) => {
         }
 
         if (!stateCache.has(clientId)) {
-            const metadataFile = path.join(DATA_DIR, `${clientId}.metadata.json`);
-            try {
-                fs.accessSync(metadataFile);
-            } catch {
+            const metadata = await getStorage().sync.readMetadata(clientId);
+            if (!metadata) {
                 console.log(`[llm-routes] ❌ Client '${clientId}' not found`);
                 return res.status(404).json({ error: `Client '${clientId}' not found` });
             }

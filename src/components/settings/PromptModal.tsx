@@ -1,14 +1,13 @@
 import { useSelector, useDispatch } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { X, ChevronDown, RotateCcw, Download, Upload, ArrowUp, ArrowDown, AlertTriangle, Thermometer, Percent, ArrowUpToLine } from 'lucide-react';
+import { X, ChevronDown, RotateCcw, Download, Upload, ArrowUp, ArrowDown, AlertTriangle } from 'lucide-react';
 import { selectAllSettings, selectPrompts } from '../../entities/setting/selectors';
 import { settingsActions, initialState } from '../../entities/setting/slice';
 import { messagesActions } from '../../entities/message/slice';
 import type { Prompts, PromptItem, PromptRole, PromptType, ApiProvider } from '../../entities/setting/types';
 import type { AppDispatch } from '../../app/store';
-import { Toggle } from '../Toggle';
-import { PARAM_DEFINITIONS, getProviderParams, getParamMeta } from '../../services/llm/parameterConfig';
+import { PARAM_DEFINITIONS, getProviderParams } from '../../services/llm/parameterConfig';
 
 interface PromptModalProps {
     isOpen: boolean;

@@ -8,7 +8,13 @@
         "build": "tsc -b && vite build",
         "lint": "eslint .",
         "preview": "vite preview",
-        "server": "bun server/index.ts"
+        "server": "bun server/index.ts",
+        "test:storage:sqlite": "bun test server/storage/sqlite/adapter.test.ts",
+        "migrate:json-to-sqlite": "bun server/scripts/migrate-json-to-sqlite.ts",
+        "verify:sqlite-migration": "bun server/scripts/verify-sqlite-migration.ts",
+        "export:sqlite-to-json": "bun server/scripts/export-sqlite-to-json.ts",
+        "sqlite:maintenance": "bun server/scripts/sqlite-maintenance.ts",
+        "test:migration": "bun test server/scripts/migration.test.ts"
     },
     "dependencies": {
         "@mlc-ai/web-tokenizers": "^0.1.6",

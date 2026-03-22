@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectAllSettings } from '../../entities/setting/selectors';
 import type { SettingsState, ApiProvider } from '../../entities/setting/types';
-import { Globe, FilePenLine, User, Download, Upload, FastForward, X, Image, CircleEllipsis, Palette, Languages, Cloud, RotateCcw, CloudUpload, Trash2, ChevronDown, BellOff, BellRing } from 'lucide-react';
+import { Globe, FilePenLine, User, Download, Upload, FastForward, X, Image, CircleEllipsis, Palette, Languages, Cloud, RotateCcw, CloudUpload, Trash2, ChevronDown, BellOff, BellRing, Bell, CheckCircle, XCircle } from 'lucide-react';
 import i18n from '../../i18n/i18n';
 import { useTranslation } from 'react-i18next';
 import { ProviderSettings } from './ProviderSettings';
@@ -27,6 +27,9 @@ function SettingsPanel({ openPromptModal, onClose }: SettingsPanelProps) {
 
     const [localSettings, setLocalSettings] = useState<SettingsState>(settings);
     const [activeTab, setActiveTab] = useState<'ai' | 'image' | 'persona' | 'others'>('ai');
+    const [pushPermission, setPushPermission] = useState<NotificationPermission>(
+        typeof Notification !== 'undefined' ? Notification.permission : 'default'
+    );
 
     // Helper functions for nested state updates
     const updateSyncSettings = <K extends keyof SettingsState['syncSettings']>(
@@ -474,6 +477,55 @@ function SettingsPanel({ openPromptModal, onClose }: SettingsPanelProps) {
                                             <RotateCcw className="w-4 h-4" /> {t('settings.others.sync.restoreRemote')}
                                         </button>
                                     </div>
+                                </div>
+
+                                {/* Push 알림 설정 */}
+                                <div className="space-y-2 pt-4 border-t border-(--color-border)">
+                                    <label className="flex items-center text-sm font-medium text-(--color-text-interface)">
+                                        <Bell className="w-4 h-4 mr-2" /> {t('settings.others.sync.push.title')}
+                                    </label>
+                                    <p className="text-xs text-(--color-text-secondary)">
+                                        {t('settings.others.sync.push.description')}
+                                    </p>
+                                    {pushPermission === 'denied' && (
+                                        <div className="flex items-center gap-2 text-xs text-red-500 bg-red-500/10 px-3 py-2 rounded-lg border border-red-500/20">
+                                            <XCircle className="w-4 h-4 shrink-0" />
+                                            <span>{t('settings.others.sync.push.denied')}</span>
+                                        </div>
+                                    )}
+                                    {pushPermission === 'granted' ? (
+                                        <div className="flex items-center gap-2 text-sm text-green-500 font-medium bg-green-500/10 px-3 py-2 rounded-lg border border-green-500/20">
+                                            <CheckCircle className="w-4 h-4 shrink-0" />
+                                            <span>{t('settings.others.sync.push.enabled')}</span>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            disabled={!localSettings.syncSettings.syncEnabled || !localSettings.syncSettings.syncBaseUrl || pushPermission === 'denied'}
+                                            onClick={async () => {
+                                                try {
+                                                    await registerProactivePush(
+                                                        localSettings.syncSettings.syncClientId,
+                                                        localSettings.syncSettings.syncBaseUrl
+                                                    );
+                                                    setPushPermission(Notification.permission);
+                                                } catch {
+                                                    setPushPermission(Notification.permission);
+                                                }
+                                            }}
+                                            className={`w-full py-2 px-4 rounded-lg text-sm flex items-center justify-center gap-2 border transition-colors
+                                                ${!localSettings.syncSettings.syncEnabled || !localSettings.syncSettings.syncBaseUrl || pushPermission === 'denied'
+                                                    ? 'bg-(--color-bg-input-secondary) text-(--color-text-secondary) border-(--color-border) cursor-not-allowed opacity-60'
+                                                    : 'bg-(--color-button-primary) hover:bg-(--color-button-primary-accent) text-(--color-text-accent) border-(--color-button-primary-accent)'
+                                                }`}
+                                        >
+                                            <BellRing className="w-4 h-4" />
+                                            {!localSettings.syncSettings.syncEnabled || !localSettings.syncSettings.syncBaseUrl
+                                                ? t('settings.others.sync.push.requiresSync')
+                                                : t('settings.others.sync.push.request')
+                                            }
+                                        </button>
+                                    )}
                                 </div>
 
                                 {/* 선톡 설정 섹션 (구독 / 구독 해제 토글 버튼 + 서버 주소) */}

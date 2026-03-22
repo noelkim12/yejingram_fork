@@ -125,7 +125,7 @@ export function buildGenerationParams(
     return params;
 }
 
-export function buildClaudeGenerationConfig(prompts: Prompts, model: string): Partial<ClaudeApiPayload> {
+export function buildClaudeGenerationConfig(prompts: Prompts): Partial<ClaudeApiPayload> {
     const baseParams = buildGenerationParams('claude', prompts);
     const config: Partial<ClaudeApiPayload> = {};
 
@@ -205,7 +205,9 @@ export function getActivatedLoresForGroup(room: Room | null | undefined, message
     // Add room lorebook if exists
     if (room?.lorebook) {
         const activatedRoomLores = getActivatedLores(room.lorebook, messages);
-        activatedRoomLores.forEach(lore => allLores.push({ lore, characterName: 'Room', characterId: -1 }));
+        activatedRoomLores.forEach(lore => {
+            allLores.push({ lore, characterName: 'Room', characterId: -1 });
+        });
     }
 
     // Add member character lorebooks
@@ -213,7 +215,9 @@ export function getActivatedLoresForGroup(room: Room | null | undefined, message
         const char = selectCharacterById(store.getState(), id);
         if (char && char.lorebook) {
             const activated = getActivatedLores(char.lorebook, messages);
-            activated.forEach(lore => allLores.push({ lore, characterName: char.name, characterId: id }));
+            activated.forEach(lore => {
+                allLores.push({ lore, characterName: char.name, characterId: id });
+            });
         }
     });
     return allLores.sort((a, b) => a.lore.order - b.lore.order);
@@ -387,7 +391,7 @@ async function buildGeminiContents(messages: Message[], isProactive: boolean, pe
 
             // Lookahead: if current message is not TEXT and next message is TEXT, merge its content and skip it
             const next = msgs[i + 1];
-            if (msgs[i].type != 'TEXT' && next && next.type === 'TEXT') {
+            if (msgs[i].type !== 'TEXT' && next && next.type === 'TEXT') {
                 if (next.content) {
                     parts[0] = { text: next.content, thought_signature: useThoughtSignature ? thoughtSignatureToSend : undefined };
                 }
@@ -404,7 +408,7 @@ async function buildGeminiContents(messages: Message[], isProactive: boolean, pe
     for (const item of main) {
         if (item && item.role !== 'system' && item.content && item.content.trim().length > 0) {
             if (shouldIncludePromptItem(item, useStructuredOutput || false, currentRoom, useImageResponse)) {
-                const role = item.role == 'assistant' ? 'model' : 'user';
+                const role = item.role === 'assistant' ? 'model' : 'user';
                 if (role) {
                     contents.push({
                         role,
@@ -666,7 +670,7 @@ export async function buildClaudeApiPayload(
     const maxTokens = selectPrompts(store.getState()).maxContextTokens;
     let trimmedMessages = [...messages];
     const promptsState = selectPrompts(store.getState());
-    const claudeConfig = buildClaudeGenerationConfig(promptsState, apiConfig.model);
+    const claudeConfig = buildClaudeGenerationConfig(promptsState);
 
     const systemPrompt = buildSystemPrompt(persona, character, extraSystemInstruction, room, trimmedMessages, useStructuredOutput, useImageResponse);
     const contentOnlyPrompt = await buildClaudeContents([], isProactive, persona, apiConfig.model, character, extraSystemInstruction, room, useStructuredOutput, useImageResponse, usePayloadImage, apiConfig);

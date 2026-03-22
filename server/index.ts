@@ -7,6 +7,7 @@ import 'dotenv/config';
 import proactiveRouter from './proactive/routes.ts';
 import { initI18n, startProactiveLoop } from './proactive/loop.ts';
 import { startLLMWorker } from './llm/worker';
+import { initializeStorage, getStorage } from './storage';
 
 interface ApiError extends Error {
     status?: number;
@@ -23,6 +24,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 export const PORT = Number(process.env.PORT ?? 28475);
 export const DATA_DIR = path.resolve(process.env.DATA_DIR || path.resolve(process.cwd(), 'data'));
 export const BIN_DIR = path.join(DATA_DIR, 'binaries');
+export const SQLITE_DB_PATH = path.join(DATA_DIR, 'yejingram.db');
 
 /* =====================================================
    Shared state cache & utilities
@@ -56,7 +58,9 @@ import syncRouter from './sync/routes';
 app.use('/api', syncRouter);
 app.use('/api', proactiveRouter);
 import llmRouter from './llm/routes';
+import llmEventsRouter from './llm/events';
 app.use('/api', llmRouter);
+app.use('/api', llmEventsRouter);
 
 app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
@@ -81,6 +85,12 @@ app.use((err: ApiError, _req: Request, res: Response, _next: NextFunction) => {
 async function start() {
     try {
         await ensureDataDir();
+        await initializeStorage({
+            dataDir: DATA_DIR,
+            binaryDir: BIN_DIR,
+            sqlitePath: SQLITE_DB_PATH,
+        });
+        console.log(`[unified-server] Storage backend: ${getStorage().backend}`);
 
         const pushPublicKey = process.env.push_public_key;
         const pushPrivateKey = process.env.push_private_key;

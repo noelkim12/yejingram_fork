@@ -29,6 +29,7 @@ import { type VirtuosoHandle } from 'react-virtuoso';
 import type { StoredFileRef } from '../../entities/message/types';
 import { getBlob, makeBinaryUrl, saveBlob } from '../../services/binaryStore';
 import { FilePreview } from './FilePreview';
+import { useLLMEvents } from '../../hooks/useLLMEvents';
 
 interface MainChatProps {
   room: Room | null;
@@ -90,8 +91,9 @@ function MainChat({ room, isMobileSidebarOpen, onToggleMobileSidebar, onToggleCh
     room?.memberIds.map(id => selectCharacterById(state, id))
   );
   const settings = useSelector(selectAllSettings);
+  useLLMEvents(room?.id);
 
-    const isBackendMode = settings.syncSettings.syncEnabled && settings.syncSettings.syncBaseUrl;
+    const isBackendMode = Boolean(settings.syncSettings.syncEnabled && settings.syncSettings.syncBaseUrl);
 
     const handleEditRoomName = () => {
     if (!room) return;

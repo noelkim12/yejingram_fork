@@ -16,7 +16,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { selectRoomById } from './entities/room/selectors'
 import { selectEditingCharacterId } from './entities/character/selectors'
 import { selectAllSettings, selectColorTheme, selectUILanguage, selectLastAnnouncementCommitTime } from './entities/setting/selectors'
-import { store, type RootState } from './app/store'
+import { type RootState } from './app/store'
 import { setActiveRoomId } from './utils/activeRoomTracker'
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Analytics } from '@vercel/analytics/react';

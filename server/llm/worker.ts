@@ -1,5 +1,3 @@
-import fs from 'fs/promises';
-import path from 'path';
 import type { PushSubscription } from 'web-push';
 import type { Message } from '../../src/entities/message/types';
 import { store, persistor, persistConfig, resetAll, type RootState } from '../../src/app/store';
@@ -11,16 +9,17 @@ import { lastSavedActions } from '../../src/entities/lastSaved/slice';
 import { syncActions } from '../../src/entities/sync/slice';
 import { selectRoomById } from '../../src/entities/room/selectors';
 import { selectCharacterById } from '../../src/entities/character/selectors';
-import { type Patch, type ServerState, type SyncMetadata } from '../../src/entities/sync/types';
+import { type ServerState, type SyncMetadata } from '../../src/entities/sync/types';
 import { applyPatch } from '../../src/utils/diff';
 import { collectBinaryStorageKeysFromState } from '../../src/utils/binaryKeys';
 import { headlessSendMessage } from '../../src/lib/headlessUtils';
 import { clearAllBinaries, saveBlob } from '../../src/services/binaryStore';
 import { shouldPersistWorkerSnapshot, shouldWorkerHandleMessage } from '../../src/services/llm/workerPolicies';
-import { DATA_DIR, sanitizeClientId, stateCache } from '../index';
+import { sanitizeClientId, stateCache } from '../index';
 import { queue } from './queue';
+import { broadcastLLMComplete } from './events';
 import { readSubscriptions, prepareAvatarCache } from '../proactive/routes';
-import { BIN_DIR } from '../index';
+import { getStorage } from '../storage';
 
 const POLL_INTERVAL_MS = 2_000;
 
@@ -28,96 +27,13 @@ interface WebPushLike {
     sendNotification(subscription: PushSubscription, payload: string): Promise<unknown>;
 }
 
-function metadataPath(clientId: string): string {
-    return path.join(DATA_DIR, `${clientId}.metadata.json`);
-}
-
-function snapshotPath(clientId: string): string {
-    return path.join(DATA_DIR, `${clientId}.snapshot.json`);
-}
-
-function patchLogPath(clientId: string): string {
-    return path.join(DATA_DIR, `${clientId}.patches.log`);
-}
-
-function toBase64Url(input: string): string {
-    return Buffer.from(input, 'utf8')
-        .toString('base64')
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=+$/g, '');
-}
-
-function binaryDataPath(clientId: string, storageKey: string): string {
-    return path.join(BIN_DIR, clientId, `${toBase64Url(storageKey)}.bin`);
-}
-
-function binaryMetaPath(clientId: string, storageKey: string): string {
-    return path.join(BIN_DIR, clientId, `${toBase64Url(storageKey)}.meta.json`);
-}
-
-async function readMetadata(clientId: string): Promise<SyncMetadata | null> {
-    try {
-        const raw = await fs.readFile(metadataPath(clientId), 'utf-8');
-        return JSON.parse(raw) as SyncMetadata;
-    } catch (err: any) {
-        if (err.code === 'ENOENT') return null;
-        throw err;
-    }
-}
-
-async function readSnapshot(clientId: string): Promise<string | null> {
-    try {
-        return await fs.readFile(snapshotPath(clientId), 'utf-8');
-    } catch (err: any) {
-        if (err.code === 'ENOENT') return null;
-        throw err;
-    }
-}
-
-async function readPatchLog(clientId: string): Promise<Patch[]> {
-    try {
-        const raw = await fs.readFile(patchLogPath(clientId), 'utf-8');
-        return raw.split('\n').filter(Boolean).map(line => JSON.parse(line) as Patch);
-    } catch (err: any) {
-        if (err.code === 'ENOENT') return [];
-        throw err;
-    }
-}
-
-async function writeSnapshot(clientId: string, snapshot: string): Promise<void> {
-    await fs.writeFile(snapshotPath(clientId), snapshot);
-}
-
-async function updateMetadata(clientId: string, metadata: SyncMetadata): Promise<void> {
-    await fs.writeFile(metadataPath(clientId), JSON.stringify(metadata, null, 2));
-}
-
-async function resetPatchLog(clientId: string): Promise<void> {
-    const file = patchLogPath(clientId);
-    try {
-        await fs.truncate(file, 0);
-    } catch (err: any) {
-        if (err.code === 'ENOENT') {
-            await fs.writeFile(file, '');
-            return;
-        }
-        throw err;
-    }
-}
-
 async function readServerState(clientId: string): Promise<ServerState | null> {
     if (stateCache.has(clientId)) {
         return stateCache.get(clientId) as ServerState;
     }
 
-    const metadata = await readMetadata(clientId);
-    if (!metadata) return null;
-
-    const state: ServerState = {
-        metadata,
-        patches: await readPatchLog(clientId)
-    };
+    const state = await getStorage().sync.readState(clientId);
+    if (!state) return null;
 
     stateCache.set(clientId, state);
     return state;
@@ -144,28 +60,22 @@ function buildSnapshot(state: RootState) {
 
 export async function preloadReferencedBinaries(clientId: string, storageKeys: string[]): Promise<void> {
     await clearAllBinaries();
+    const binaryStorage = getStorage().binaries;
 
     for (const storageKey of storageKeys) {
-        try {
-            const [buffer, metaRaw] = await Promise.all([
-                fs.readFile(binaryDataPath(clientId, storageKey)),
-                fs.readFile(binaryMetaPath(clientId, storageKey), 'utf-8').catch(() => ''),
-            ]);
-            const meta = metaRaw ? JSON.parse(metaRaw) as { mimeType?: string } : null;
-            await saveBlob(storageKey, new Blob([buffer], { type: meta?.mimeType || 'application/octet-stream' }));
-        } catch (err: any) {
-            if (err.code === 'ENOENT') {
-                console.warn(`[llm-worker:${clientId}] Missing binary ${storageKey}, continuing without preload.`);
-                continue;
-            }
-            throw err;
+        const binary = await binaryStorage.get(clientId, storageKey);
+        if (!binary) {
+            console.warn(`[llm-worker:${clientId}] Missing binary ${storageKey}, continuing without preload.`);
+            continue;
         }
+
+        await saveBlob(storageKey, new Blob([new Uint8Array(binary.data)], { type: binary.mimeType || 'application/octet-stream' }));
     }
 }
 
 async function loadStateFromSyncStore(clientId: string): Promise<SyncMetadata> {
     const safeClientId = sanitizeClientId(clientId);
-    const snapshotRaw = await readSnapshot(safeClientId);
+    const snapshotRaw = await getStorage().sync.readSnapshot(safeClientId);
     const serverState = await readServerState(safeClientId);
     if (!snapshotRaw || !serverState) {
         throw new Error(`Sync state missing for client '${safeClientId}'`);
@@ -207,6 +117,8 @@ async function sendCompletionPush(
     state: RootState,
     generatedMessages: Message[]
 ): Promise<void> {
+    void vapidPublicKey;
+
     let subscription: PushSubscription;
     try {
         subscription = await readSubscriptions(clientId) as PushSubscription;
@@ -235,10 +147,12 @@ async function sendCompletionPush(
                 icon: latestAuthorId == null ? '/yejingram.png' : `/api/${clientId}/push/icon/${latestAuthorId}`,
                 badge: '/yejingram.png',
                 body: `${characterName}: ${body}`,
-                tag: roomId,
-                roomId,
-                clientId,
-                vapidPublicKey,
+                tag: `llm-${roomId}`,
+                data: {
+                    url: `/?roomId=${roomId}`,
+                    roomId,
+                    clientId,
+                },
             })
         );
         console.log(`[llm-worker:${clientId}] ✅ Push notification sent to ${characterName}`);
@@ -303,6 +217,28 @@ async function processRequest(
             const elapsed = Date.now() - startTime;
             console.log(`[llm-worker:${safeClientId}] ✅ LLM completed in ${elapsed}ms, generated ${generatedMessages.length} message(s)`);
 
+            if (generatedMessages.length > 0 && request.userMessages.length > 0) {
+                const latestUserTime = request.userMessages
+                    .map(m => m.createdAt)
+                    .filter(Boolean)
+                    .sort()
+                    .pop() ?? '';
+
+                if (latestUserTime) {
+                    let offset = 1;
+                    for (const msg of generatedMessages) {
+                        if (msg.createdAt <= latestUserTime) {
+                            const fixedTime = new Date(new Date(latestUserTime).getTime() + offset).toISOString();
+                            store.dispatch({
+                                type: 'messages/updateOne',
+                                payload: { id: msg.id, changes: { createdAt: fixedTime } },
+                            });
+                            offset++;
+                        }
+                    }
+                }
+            }
+
             const nextState = store.getState();
             const snapshotAfter = JSON.stringify(buildSnapshot(nextState));
             if (shouldPersistWorkerSnapshot({
@@ -317,9 +253,10 @@ async function processRequest(
                 };
 
                 console.log(`[llm-worker:${safeClientId}] 💾 Saving snapshot (seq: ${nextMetadata.snapshotSeq})...`);
-                await writeSnapshot(safeClientId, JSON.stringify(buildSnapshot(nextState)));
-                await updateMetadata(safeClientId, nextMetadata);
-                await resetPatchLog(safeClientId);
+                await getStorage().sync.replaceState(safeClientId, {
+                    snapshot: JSON.stringify(buildSnapshot(nextState)),
+                    metadata: nextMetadata,
+                });
                 console.log(`[llm-worker:${safeClientId}] ✅ Snapshot saved`);
 
                 stateCache.set(safeClientId, { metadata: nextMetadata, patches: [] } as ServerState);
@@ -328,6 +265,14 @@ async function processRequest(
             }
 
             if (generatedMessages.length > 0) {
+                const currentServerState = stateCache.get(safeClientId) as ServerState | undefined;
+                broadcastLLMComplete(safeClientId, {
+                    requestId: request.id,
+                    roomId: request.roomId,
+                    snapshotSeq: currentServerState?.metadata.snapshotSeq ?? 0,
+                    patchSeq: currentServerState?.metadata.patchSeq ?? 0,
+                });
+
                 await sendCompletionPush(
                     config.webpush,
                     config.vapidPublicKey,
@@ -366,8 +311,8 @@ export function startLLMWorker(config: { webpush: WebPushLike; vapidPublicKey: s
             if (pending.length > 0) {
                 console.log(`[llm-worker] 📥 Found ${pending.length} pending request(s)`);
             }
-            pending.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-            for (const request of pending) {
+            const orderedPending = [...pending].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+            for (const request of orderedPending) {
                 await processRequest(request, config);
             }
         } catch (error) {

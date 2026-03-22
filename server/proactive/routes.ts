@@ -1,20 +1,36 @@
 import { Router } from 'express';
-import fs from 'fs/promises';
-import path from 'path';
 import sharp from 'sharp';
 import type { PushSubscription } from 'web-push';
 import { getBlob } from '../../src/services/binaryStore';
 import type { RootState } from '../../src/app/store';
 import { selectCharacterById } from '../../src/entities/character/selectors.ts';
 import { sanitizeClientId } from '../index.ts';
+import { getStorage } from '../storage';
 
 interface SubscriptionBody extends PushSubscription {
     clientId: string;
 }
 
-const SUBSCRIPTION_DIR = path.resolve(process.cwd(), 'data');
-
 export const avatarCache = new Map<string, Buffer>();
+
+function toPushSubscription(raw: Record<string, unknown>): PushSubscription {
+    const endpoint = raw.endpoint;
+    const keys = raw.keys;
+    const p256dh = typeof keys === 'object' && keys ? (keys as { p256dh?: unknown }).p256dh : undefined;
+    const auth = typeof keys === 'object' && keys ? (keys as { auth?: unknown }).auth : undefined;
+
+    if (typeof endpoint !== 'string' || typeof p256dh !== 'string' || typeof auth !== 'string') {
+        throw new Error('Invalid subscription object');
+    }
+
+    return {
+        endpoint,
+        keys: {
+            p256dh,
+            auth,
+        },
+    };
+}
 
 export async function prepareAvatarCache(state: RootState, clientId: string, authorId: number) {
     try {
@@ -42,26 +58,27 @@ export async function prepareAvatarCache(state: RootState, clientId: string, aut
     }
 }
 
-export async function readSubscriptions(clientId?: string): Promise<PushSubscription | { [key: string]: PushSubscription }> {
-    await fs.mkdir(SUBSCRIPTION_DIR, { recursive: true });
+export async function readSubscriptions(clientId: string): Promise<PushSubscription>;
+export async function readSubscriptions(): Promise<Record<string, PushSubscription>>;
+export async function readSubscriptions(clientId?: string): Promise<PushSubscription | Record<string, PushSubscription>> {
+    const pushSubscriptions = getStorage().pushSubscriptions;
 
     if (clientId) {
         const safeClientId = sanitizeClientId(clientId);
-        const filePath = path.join(SUBSCRIPTION_DIR, `${safeClientId}.json`);
-        const json = await fs.readFile(filePath, 'utf-8');
-        const parsed: PushSubscription = JSON.parse(json);
-        return parsed;
-    } else {
-        const entries = await fs.readdir(SUBSCRIPTION_DIR, { withFileTypes: true });
-        const subs: { [key: string]: PushSubscription } = {};
+        const subscription = await pushSubscriptions.read(safeClientId);
+        if (!subscription) {
+            throw new Error('Subscription not found');
+        }
 
-        for (const entry of entries) {
-            if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+        return toPushSubscription(subscription);
+    } else {
+        const subs: { [key: string]: PushSubscription } = {};
+        const subscriptions = await pushSubscriptions.readAll();
+
+        for (const [subscriptionClientId, subscription] of Object.entries(subscriptions)) {
             try {
-                const json = await fs.readFile(path.join(SUBSCRIPTION_DIR, entry.name), 'utf-8');
-                subs[entry.name.replace('.json', '')] = JSON.parse(json);
+                subs[subscriptionClientId] = toPushSubscription(subscription);
             } catch {
-                // 개별 파일 오류는 무시하고 나머지 파일만 사용
                 continue;
             }
         }
@@ -76,9 +93,7 @@ export async function saveSubscription(subscription: SubscriptionBody): Promise<
 
     const safeClientId = sanitizeClientId(subscription.clientId);
     const { clientId, ...pure } = subscription;
-    const filePath = path.join(SUBSCRIPTION_DIR, `${safeClientId}.json`);
-    await fs.mkdir(SUBSCRIPTION_DIR, { recursive: true });
-    await fs.writeFile(filePath, JSON.stringify(pure, null, 2));
+    await getStorage().pushSubscriptions.save(safeClientId, pure as unknown as Record<string, unknown>);
 }
 
 const router = Router();
@@ -98,11 +113,9 @@ router.post('/:clientId/push/subscription', async (req, res) => {
 router.post('/:clientId/push/unsubscribe', async (req, res) => {
     try {
         const clientId = sanitizeClientId(req.params.clientId);
-        const filePath = path.join(SUBSCRIPTION_DIR, `${clientId}.json`);
-        if (!(await fs.stat(filePath).catch(() => false))) {
+        const removed = await getStorage().pushSubscriptions.delete(clientId);
+        if (!removed) {
             return res.status(404).json({ error: 'Subscription not found' });
-        } else {
-            await fs.unlink(filePath);
         }
         res.json({ ok: true });
     } catch (err: any) {

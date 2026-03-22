@@ -1,5 +1,17 @@
 # .env
 .env
+.env.*
+deploy/*.env
+Caddyfile
+
+# Sisyphus working files
+.sisyphus/
+
+# Personal character sheets
+docs/plans/charsheet*.md
+docs/plans/futa*.md
+docs/plans/shortstack*.md
+docs/plans/hiki-charsheet*.md
 
 # Backend data
 server/*/data/**
