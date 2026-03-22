@@ -268,13 +268,12 @@ function MainChat({ room, isMobileSidebarOpen, onToggleMobileSidebar, onToggleCh
     }
 
     if (isBackendMode) {
-      // Fire and forget for backend mode
       void sendViaBackend(
         settings.syncSettings.syncClientId,
         settings.syncSettings.syncBaseUrl,
         room.id,
         userMessage
-      );
+      ).catch(err => console.error('[Backend Mode] Error:', err));
       return;
     }
 

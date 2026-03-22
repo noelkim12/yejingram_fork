@@ -26,6 +26,7 @@ export interface ImageGenerationSettingsState {
     model: string;
     selectedArtStyleId: string;
     styleAware: boolean;
+    imagePlaceholder: boolean;
 }
 
 export interface NAIConfig {

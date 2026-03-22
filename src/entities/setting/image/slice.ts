@@ -40,6 +40,7 @@ export const initialState: ImageGenerationSettingsState = {
     model: 'gemini-2.5-flash-image-preview',
     selectedArtStyleId: '0',
     styleAware: true,
+    imagePlaceholder: false,
 };
 
 export const imageSettingsAdapter = createEntityAdapter<ImageGenerationSettingsState, string>({

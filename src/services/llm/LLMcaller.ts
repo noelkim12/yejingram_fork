@@ -17,6 +17,7 @@ import { callImageGeneration } from "../image/ImageCaller";
 import { LLMJSONParser } from 'ai-json-fixer';
 import { CLAUDE_API_BASE_URL, GEMINI_API_BASE_URL, GROK_API_BASE_URL, OPENAI_API_BASE_URL, VERTEX_AI_API_BASE_URL, OPENROUTER_API_BASE_URL, DEEPSEEK_API_BASE_URL } from "../URLs";
 import { makeMessageBinaryKey, saveBase64 } from '../binaryStore';
+import { resolveLlmTransport, type LlmTransport } from './workerPolicies';
 
 const llmParser = new LLMJSONParser();
 
@@ -510,11 +511,21 @@ async function LLMSend(
 }
 
 
-export async function SendMessage(room: Room, setTypingCharacterId: (id: number | null) => void, t: (key: string) => string, sendType: 'normal' | 'continuation' | 'proactive' = 'normal') {
+export async function SendMessage(
+    room: Room,
+    setTypingCharacterId: (id: number | null) => void,
+    t: (key: string) => string,
+    sendType: 'normal' | 'continuation' | 'proactive' = 'normal',
+    transport: LlmTransport = 'proxy'
+) {
     const state = store.getState();
     const settings = selectAllSettings(state);
 
-    if (settings.syncSettings.syncEnabled && settings.syncSettings.syncBaseUrl) {
+    if (resolveLlmTransport({
+        syncEnabled: settings.syncSettings.syncEnabled,
+        syncBaseUrl: settings.syncSettings.syncBaseUrl,
+        preferProxy: transport === 'proxy',
+    }) === 'proxy') {
         try {
             const messages = selectMessagesByRoomId(state, room.id);
             const recentUserMessages = messages.filter(m => m.authorId === 0).slice(-1);
@@ -544,7 +555,11 @@ export async function SendGroupChatMessage(room: Room, setTypingCharacterId: (id
     const state = store.getState();
     const appSettings = selectAllSettings(state);
 
-    if (appSettings.syncSettings.syncEnabled && appSettings.syncSettings.syncBaseUrl) {
+    if (resolveLlmTransport({
+        syncEnabled: appSettings.syncSettings.syncEnabled,
+        syncBaseUrl: appSettings.syncSettings.syncBaseUrl,
+        preferProxy: true,
+    }) === 'proxy') {
         try {
             const messages = selectMessagesByRoomId(state, room.id);
             const recentUserMessages = messages.filter(m => m.authorId === 0).slice(-1);

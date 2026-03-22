@@ -130,19 +130,12 @@ export function buildClaudeGenerationConfig(prompts: Prompts, model: string): Pa
     const config: Partial<ClaudeApiPayload> = {};
 
     if (baseParams.temperature !== undefined) {
-        config.temperature = baseParams.temperature > 1 ? 1 : baseParams.temperature;
+        config.temperature = baseParams.temperature;
     }
     if (baseParams.top_k !== undefined) {
         config.top_k = baseParams.top_k;
     }
-    if (
-        baseParams.top_p !== undefined
-        && !(
-            model.startsWith("claude-opus-4-1")
-            || model.startsWith("claude-sonnet-4-5")
-            || model.startsWith("claude-opus-4-5-20251101")
-        )
-    ) {
+    if (baseParams.top_p !== undefined) {
         config.top_p = baseParams.top_p;
     }
     if (baseParams.stop_sequences !== undefined) {
@@ -877,8 +870,8 @@ export async function buildOpenAIApiPayload(
         const payload: OpenAIApiPayload = {
             model: apiConfig.model,
             messages: history,
-            temperature: apiConfig.model == 'gpt-5' ? 1 : baseParams.temperature,
-            top_p: apiConfig.model == 'gpt-5' ? undefined : baseParams.top_p,
+            temperature: baseParams.temperature,
+            top_p: baseParams.top_p,
             frequency_penalty: baseParams.frequency_penalty,
             presence_penalty: baseParams.presence_penalty,
             stop: baseParams.stop,

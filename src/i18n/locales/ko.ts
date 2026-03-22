@@ -108,6 +108,8 @@ const ko = {
             alt: "파일 미리보기",
             audioFile: "오디오 파일",
             clickToPlay: "클릭하여 재생",
+            loading: "로딩 중...",
+            reveal: "이미지 보기",
         },
         message: {
             sent: "전송됨",
@@ -422,6 +424,10 @@ const ko = {
             },
         },
         image: {
+            placeholder: {
+                label: "이미지 플레이스홀더",
+                help: "활성화하면 채팅 내 이미지에 블러 처리를 적용합니다. 이미지를 클릭하여 개별적으로 해제할 수 있습니다.",
+            },
             apiKeyLabel: "이미지 생성용 API 키",
             apiKeyPlaceholder: "이미지 모델 API 키를 입력하세요",
             modelLabel: "이미지 생성 모델",

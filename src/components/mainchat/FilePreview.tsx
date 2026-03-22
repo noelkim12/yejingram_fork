@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { StickyNote } from 'lucide-react';
+import { StickyNote, Eye } from 'lucide-react';
 import type { StoredFileRef } from '../../entities/message/types';
 import { getBlob, makeBinaryUrl } from '../../services/binaryStore';
 
@@ -9,12 +9,16 @@ export function FilePreview({
   t,
   previewSrc,
   onResolveImageUrl,
+  blurred = false,
+  onReveal,
 }: {
   file: StoredFileRef;
   preview: boolean;
   t: (key: string) => string;
   previewSrc?: string;
   onResolveImageUrl?: (url: string) => void;
+  blurred?: boolean;
+  onReveal?: () => void;
 }) {
   const mimeType = file.mimeType;
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
@@ -65,6 +69,26 @@ export function FilePreview({
         </div>
       );
     }
+    if (blurred) {
+      return (
+        <div className="relative inline-block">
+          <img
+            src={src}
+            className={`${preview ? 'max-w-full max-h-32' : 'max-w-64'} object-contain rounded-lg blur-xl transition-[filter] duration-300`}
+            alt={t('main.filePreview.alt')}
+          />
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onReveal?.(); }}
+            className="absolute inset-0 flex items-center justify-center bg-(--color-bg-shadow)/30 rounded-lg hover:bg-(--color-bg-shadow)/50 transition-colors"
+            title={t('main.filePreview.reveal')}
+          >
+            <Eye className="w-6 h-6 text-(--color-text-accent) drop-shadow-md" />
+          </button>
+        </div>
+      );
+    }
+
     return (
       <img
         src={src}

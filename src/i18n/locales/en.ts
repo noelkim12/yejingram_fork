@@ -108,6 +108,8 @@ const en = {
             alt: "File preview",
             audioFile: "Audio file",
             clickToPlay: "Click to play",
+            loading: "Loading...",
+            reveal: "Show image",
         },
         message: {
             sent: "Sent",
@@ -420,6 +422,10 @@ const en = {
             },
         },
         image: {
+            placeholder: {
+                label: "Image Placeholder",
+                help: "When enabled, images in chat are blurred. Click on an image to reveal it individually.",
+            },
             apiKeyLabel: "Image generation API key",
             apiKeyPlaceholder: "Enter your image model API key",
             modelLabel: "Image generation model",

@@ -13,10 +13,14 @@ import { selectRoomById } from '../../src/entities/room/selectors';
 import { selectCharacterById } from '../../src/entities/character/selectors';
 import { type Patch, type ServerState, type SyncMetadata } from '../../src/entities/sync/types';
 import { applyPatch } from '../../src/utils/diff';
+import { collectBinaryStorageKeysFromState } from '../../src/utils/binaryKeys';
 import { headlessSendMessage } from '../../src/lib/headlessUtils';
+import { clearAllBinaries, saveBlob } from '../../src/services/binaryStore';
+import { shouldPersistWorkerSnapshot, shouldWorkerHandleMessage } from '../../src/services/llm/workerPolicies';
 import { DATA_DIR, sanitizeClientId, stateCache } from '../index';
 import { queue } from './queue';
 import { readSubscriptions, prepareAvatarCache } from '../proactive/routes';
+import { BIN_DIR } from '../index';
 
 const POLL_INTERVAL_MS = 2_000;
 
@@ -34,6 +38,22 @@ function snapshotPath(clientId: string): string {
 
 function patchLogPath(clientId: string): string {
     return path.join(DATA_DIR, `${clientId}.patches.log`);
+}
+
+function toBase64Url(input: string): string {
+    return Buffer.from(input, 'utf8')
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '');
+}
+
+function binaryDataPath(clientId: string, storageKey: string): string {
+    return path.join(BIN_DIR, clientId, `${toBase64Url(storageKey)}.bin`);
+}
+
+function binaryMetaPath(clientId: string, storageKey: string): string {
+    return path.join(BIN_DIR, clientId, `${toBase64Url(storageKey)}.meta.json`);
 }
 
 async function readMetadata(clientId: string): Promise<SyncMetadata | null> {
@@ -122,6 +142,27 @@ function buildSnapshot(state: RootState) {
     };
 }
 
+export async function preloadReferencedBinaries(clientId: string, storageKeys: string[]): Promise<void> {
+    await clearAllBinaries();
+
+    for (const storageKey of storageKeys) {
+        try {
+            const [buffer, metaRaw] = await Promise.all([
+                fs.readFile(binaryDataPath(clientId, storageKey)),
+                fs.readFile(binaryMetaPath(clientId, storageKey), 'utf-8').catch(() => ''),
+            ]);
+            const meta = metaRaw ? JSON.parse(metaRaw) as { mimeType?: string } : null;
+            await saveBlob(storageKey, new Blob([buffer], { type: meta?.mimeType || 'application/octet-stream' }));
+        } catch (err: any) {
+            if (err.code === 'ENOENT') {
+                console.warn(`[llm-worker:${clientId}] Missing binary ${storageKey}, continuing without preload.`);
+                continue;
+            }
+            throw err;
+        }
+    }
+}
+
 async function loadStateFromSyncStore(clientId: string): Promise<SyncMetadata> {
     const safeClientId = sanitizeClientId(clientId);
     const snapshotRaw = await readSnapshot(safeClientId);
@@ -134,9 +175,12 @@ async function loadStateFromSyncStore(clientId: string): Promise<SyncMetadata> {
     const hydrated = serverState.patches.length > 0
         ? applyPatch(snapshot, serverState.patches)
         : snapshot;
+    const binaryKeys = collectBinaryStorageKeysFromState(hydrated);
 
-    await persistor.pause();
-    await persistor.flush();
+    await preloadReferencedBinaries(safeClientId, binaryKeys);
+
+    persistor.pause();
+    void persistor.flush();
 
     store.dispatch(resetAll());
     store.dispatch(charactersActions.importCharacters(entityStateToArray(hydrated.characters as any)));
@@ -172,7 +216,7 @@ async function sendCompletionPush(
         return;
     }
 
-    const latestMessage = generatedMessages.at(-1);
+    const latestMessage = generatedMessages[generatedMessages.length - 1];
     const latestAuthorId = latestMessage?.authorId;
     if (latestAuthorId != null) {
         await prepareAvatarCache(state, clientId, latestAuthorId);
@@ -220,6 +264,7 @@ async function processRequest(
             console.log(`[llm-worker:${safeClientId}] 📂 Loading state from sync store...`);
             const metadata = await loadStateFromSyncStore(safeClientId);
             const stateBefore = store.getState();
+            const snapshotBefore = JSON.stringify(buildSnapshot(stateBefore));
             console.log(`[llm-worker:${safeClientId}] ✅ State loaded (snapshotSeq: ${metadata.snapshotSeq})`);
 
             const room = selectRoomById(stateBefore, request.roomId);
@@ -227,20 +272,16 @@ async function processRequest(
                 throw new Error(`Room not found: ${request.roomId}`);
             }
 
-            if (stateBefore.settings.useImageResponse || stateBefore.settings.usePayloadImage) {
-                console.warn(`[llm-worker:${safeClientId}] ⚠️ Image generation disabled in worker; forcing text-only response.`);
-                store.dispatch(settingsActions.setUseImageResponse(false));
-                store.dispatch(settingsActions.setUsePayloadImage(false));
-            }
-
+            let acceptedUserMessageCount = 0;
             for (const userMessage of request.userMessages) {
-                if (userMessage.type === 'IMAGE') {
-                    console.warn(`[llm-worker:${safeClientId}] Skipping user message ${userMessage.id} with imageGenerationSetting.`);
+                if (!shouldWorkerHandleMessage(userMessage)) {
+                    console.warn(`[llm-worker:${safeClientId}] Skipping unsupported user message ${userMessage.id}.`);
                     continue;
                 }
                 store.dispatch(messagesActions.upsertOne(userMessage));
+                acceptedUserMessageCount++;
             }
-            console.log(`[llm-worker:${safeClientId}] 📝 Added ${request.userMessages.length} user message(s) to store`);
+            console.log(`[llm-worker:${safeClientId}] 📝 Added ${acceptedUserMessageCount} user message(s) to store`);
 
             console.log(`[llm-worker:${safeClientId}] 🤖 Calling LLM API...`);
             const startTime = Date.now();
@@ -249,10 +290,10 @@ async function processRequest(
                 store,
                 room,
                 mode: 'normal',
+                transport: 'local',
                 onMessage: generated => {
-                    if (generated.type === 'IMAGE') {
-                        console.warn(`[llm-worker:${safeClientId}] Skipping generated image message ${generated.id}; image generation is unsupported.`);
-                        store.dispatch(messagesActions.removeOne(generated));
+                    if (!shouldWorkerHandleMessage(generated)) {
+                        console.warn(`[llm-worker:${safeClientId}] Skipping unsupported generated message ${generated.id}.`);
                         return;
                     }
                     console.log(`[llm-worker:${safeClientId}] 💬 Received message from ${generated.authorId}: ${generated.content?.slice(0, 50)}...`);
@@ -263,28 +304,41 @@ async function processRequest(
             console.log(`[llm-worker:${safeClientId}] ✅ LLM completed in ${elapsed}ms, generated ${generatedMessages.length} message(s)`);
 
             const nextState = store.getState();
-            const nextMetadata: SyncMetadata = {
-                snapshotSeq: metadata.snapshotSeq + 1,
-                patchSeq: 0,
-                version: metadata.version ?? persistConfig.version,
-            };
+            const snapshotAfter = JSON.stringify(buildSnapshot(nextState));
+            if (shouldPersistWorkerSnapshot({
+                snapshotChanged: snapshotBefore !== snapshotAfter,
+                acceptedUserMessageCount,
+                generatedMessageCount: generatedMessages.length,
+            })) {
+                const nextMetadata: SyncMetadata = {
+                    snapshotSeq: metadata.snapshotSeq + 1,
+                    patchSeq: 0,
+                    version: metadata.version ?? persistConfig.version,
+                };
 
-            console.log(`[llm-worker:${safeClientId}] 💾 Saving snapshot (seq: ${nextMetadata.snapshotSeq})...`);
-            await writeSnapshot(safeClientId, JSON.stringify(buildSnapshot(nextState)));
-            await updateMetadata(safeClientId, nextMetadata);
-            await resetPatchLog(safeClientId);
-            console.log(`[llm-worker:${safeClientId}] ✅ Snapshot saved`);
+                console.log(`[llm-worker:${safeClientId}] 💾 Saving snapshot (seq: ${nextMetadata.snapshotSeq})...`);
+                await writeSnapshot(safeClientId, JSON.stringify(buildSnapshot(nextState)));
+                await updateMetadata(safeClientId, nextMetadata);
+                await resetPatchLog(safeClientId);
+                console.log(`[llm-worker:${safeClientId}] ✅ Snapshot saved`);
 
-            stateCache.set(safeClientId, { metadata: nextMetadata, patches: [] } as ServerState);
+                stateCache.set(safeClientId, { metadata: nextMetadata, patches: [] } as ServerState);
+            } else {
+                console.log(`[llm-worker:${safeClientId}] ⏭️ Skipping snapshot save because no request or response changed state`);
+            }
 
-            await sendCompletionPush(
-                config.webpush,
-                config.vapidPublicKey,
-                safeClientId,
-                room.id,
-                nextState,
-                generatedMessages
-            );
+            if (generatedMessages.length > 0) {
+                await sendCompletionPush(
+                    config.webpush,
+                    config.vapidPublicKey,
+                    safeClientId,
+                    room.id,
+                    nextState,
+                    generatedMessages
+                );
+            } else {
+                console.log(`[llm-worker:${safeClientId}] 📱 No generated messages, skipping notification`);
+            }
         } finally {
             store.dispatch({ type: 'sync/applyDeltaEnd' });
         }

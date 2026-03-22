@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, type JSX } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Globe, Code, Clock, Key, Image, ImageUpscale, X, Terminal, SquareTerminal, AudioLines } from 'lucide-react';
+import { Globe, Code, Clock, Key, Image, ImageUpscale, X, Terminal, SquareTerminal, AudioLines, EyeOff } from 'lucide-react';
 import ArtStyleList from './ArtStyleManagerUI';
 import jsonEditor from 'jsoneditor';
 import 'jsoneditor/dist/jsoneditor.css';
@@ -186,6 +186,22 @@ export function ImageSettings({ settings, setSettings }: ComfySettingsProps): JS
 
   return (
     <div className="space-y-4">
+      {/* 이미지 플레이스홀더 (블러) */}
+      <Toggle
+        id="image-placeholder-toggle"
+        label={t('settings.image.placeholder.label')}
+        description={t('settings.image.placeholder.help')}
+        checked={settings.imageSettings.imagePlaceholder || false}
+        onChange={checked => setSettings(prev => ({
+          ...prev,
+          imageSettings: {
+            ...prev.imageSettings,
+            imagePlaceholder: checked
+          }
+        }))}
+        icon={<EyeOff className="w-4 h-4" />}
+      />
+
       {/* 이미지 생성용 API 키 */}
       <div>
         <label className="flex items-center text-sm font-medium text-(--color-text-interface) mb-2"><Key className="w-4 h-4 mr-2" />{t('settings.image.apiKeyLabel')}</label>
@@ -322,7 +338,7 @@ export function ImageSettings({ settings, setSettings }: ComfySettingsProps): JS
                 type="number"
                 min={64}
                 max={2624}
-                onChange={(e) => handleImageModelConfigChange('novelai', 'width', e.target.value)}
+                onChange={(e) => handleImageModelConfigChange('novelai', 'width', parseInt(e.target.value, 10))}
                 value={imageConfig.naiConfig?.width || 512}
                 placeholder="Width"
                 className="w-full px-4 py-3 bg-(--color-bg-input-secondary) text-(--color-text-primary) border-(--color-border) rounded-xl border focus:ring-2 focus:ring-(--color-focus-border)/50 focus:border-(--color-focus-border) transition-all duration-200 text-sm font-mono"
@@ -332,7 +348,7 @@ export function ImageSettings({ settings, setSettings }: ComfySettingsProps): JS
                 type="number"
                 min={64}
                 max={2624}
-                onChange={(e) => handleImageModelConfigChange('novelai', 'height', e.target.value)}
+                onChange={(e) => handleImageModelConfigChange('novelai', 'height', parseInt(e.target.value, 10))}
                 value={imageConfig.naiConfig?.height || 768}
                 placeholder="Height"
                 className="w-full px-4 py-3 bg-(--color-bg-input-secondary) text-(--color-text-primary) border-(--color-border) rounded-xl border focus:ring-2 focus:ring-(--color-focus-border)/50 focus:border-(--color-focus-border) transition-all duration-200 text-sm font-mono"

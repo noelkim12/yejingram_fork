@@ -108,6 +108,8 @@ const ja = {
             alt: "ファイルプレビュー",
             audioFile: "オーディオファイル",
             clickToPlay: "クリックして再生",
+            loading: "読み込み中...",
+            reveal: "画像を表示",
         },
         message: {
             sent: "送信済み",
@@ -420,6 +422,10 @@ const ja = {
             },
         },
         image: {
+            placeholder: {
+                label: "画像プレースホルダー",
+                help: "有効にすると、チャット内の画像にぼかし処理を適用します。画像をクリックして個別に解除できます。",
+            },
             apiKeyLabel: "画像生成用APIキー",
             apiKeyPlaceholder: "画像モデルのAPIキーを入力してください",
             modelLabel: "画像生成モデル",
